@@ -45,8 +45,10 @@ uv run thread-keeper install-hooks
 import threadkeeper as tk
 
 sessions = tk.sessions()             # DataFrame, one row per session
-messages = tk.messages(session_id)   # DataFrame, one row per normalized event
+sid = sessions.iloc[0]["id"]
+messages = tk.messages(sid)          # DataFrame, one row per normalized event
 tk.cost_of(sessions.iloc[0]["usage"])            # USD, list-price estimate
+# cacheWrite folds the 5m + 1h tiers into one USD bucket (usage schema keeps them split)
 tk.cost_breakdown_of(sessions.iloc[0]["usage"])  # {"input":…, "output":…, "cacheWrite":…, "cacheRead":…}
 ```
 

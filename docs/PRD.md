@@ -36,7 +36,7 @@ thread-keeper is the **data-ownership + introspection** layer of the personal "h
 
 - **What it is:** a headless Python CLI + a Jupyter analysis surface. No web UI, no daemon, no cloud.
 - **What it is not (yet):** an automated problem-detector. v1 gives you the *substrate + a manual notebook*; the detectors are the documented **north star** (§6, §US-6), hand-run in notebooks first because early work is experimental.
-- **Why now:** the extraction is a solved problem — Chronicle (the author's JS "time machine") already parses these six tools offline; and the [[2026-07-15 Chronicle — Opik-cipx Comparison + Token Attribution Without a Proxy]] analysis already worked out that token/cost/waste attribution is reconstructable **offline, without a proxy**. thread-keeper is the *lightweight, Python, notebook-first* redraw of that core, dropping everything heavy (Electron, live SSE, replay, MCP/skills hubs, sharing) to leave exactly: **collect → normalize → analyze.**
+- **Why now:** the extraction is a solved problem — Chronicle (the author's JS "time machine") already parses all six agent-log sources offline (Claude Code / Codex / Cursor plus OpenCode / Gemini / Copilot — **three ported in v1**, §10); and the [[2026-07-15 Chronicle — Opik-cipx Comparison + Token Attribution Without a Proxy]] analysis already worked out that token/cost/waste attribution is reconstructable **offline, without a proxy**. thread-keeper is the *lightweight, Python, notebook-first* redraw of that core, dropping everything heavy (Electron, live SSE, replay, MCP/skills hubs, sharing) to leave exactly: **collect → normalize → analyze.**
 - **Through-line:** the personal project's deepest value is **consistency** — AI should make one's work *less random, more manageable*. Detecting *how users instruct* badly and *when knowledge is stale* is a consistency instrument. That is what this data is *for*.
 
 ---
@@ -87,7 +87,7 @@ Each story is one loop the implementation must close. `[v1]` unless marked `[def
 
 ### US-4 — Notebook-queryable data `[v1]`
 **As an** operator, **I want** to load the store into pandas in one call, **so that** I can explore without writing SQL glue.
-- [ ] `import threadkeeper as tk; tk.sessions()` / `tk.messages(session_id)` return DataFrames.
+- [ ] `import threadkeeper as tk; s = tk.sessions(); tk.messages(s.iloc[0]["id"])` return DataFrames.
 - [ ] `tool_input` and `usage` deserialize from JSON to dict columns on load.
 
 ### US-5 — Starter analysis notebooks `[v1]`
@@ -355,7 +355,7 @@ Anything deferred elsewhere points here. Each names the reason + path back.
 
 - **Engineers:** build pillar by pillar in the W1→W4 order; each Req's Acceptance is the definition of done.
 - **AI codegen (Claude Code / Cursor / Codex):** load `docs/PRD.md`; implement **one Req at a time**, checking its Acceptance box; use `docs/contracts/*.json` **verbatim** as the types (do not re-derive shapes from prose); when unsure, prefer the *smallest* change that closes the current Req. Port from the exact Chronicle files in the Appendix — translate logic, don't reinvent it.
-- **Reference implementation:** the JS original at `/Users/not_so_fat/workspace/codes/chronicle` (see Appendix for the six load-bearing files). "What's reusable vs must-rewrite" is in the Appendix.
+- **Reference implementation:** the JS original at `/Users/not_so_fat/workspace/codes/chronicle` (see Appendix A for the load-bearing Chronicle files to port). "What's reusable vs must-rewrite" is in the Appendix.
 
 ---
 

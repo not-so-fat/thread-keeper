@@ -107,6 +107,11 @@ def cost_breakdown_of(usage: dict | None) -> dict:
     ``usage`` is the decoded dict of ``{model_id: {input, output, ...}}``
     (PRD §7.2). Unpriced models are skipped. Always returns all four keys,
     zeroed when usage is empty/None.
+
+    The returned ``cacheWrite`` key is a single USD bucket: the 5m and 1h
+    cache-write *token* tiers from §7.2 are priced separately then summed
+    here (input acceptance of a legacy single ``cacheWrite`` tier is
+    unchanged — see ``cost_breakdown_of_model``).
     """
     totals = {"input": 0.0, "output": 0.0, "cacheWrite": 0.0, "cacheRead": 0.0}
     if not usage:
