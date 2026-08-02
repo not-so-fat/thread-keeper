@@ -31,11 +31,17 @@ def collect(
     host: Annotated[str | None, typer.Option("--host", help="Origin-machine label; else local hostname.")] = None,
     from_stdin: Annotated[
         bool,
-        typer.Option("--from-stdin", hidden=True, help="Read a Claude Code/Cursor SessionEnd hook payload (JSON) from stdin."),
+        typer.Option(
+            "--from-stdin",
+            help="Hook fast-path: read Claude Code/Cursor SessionEnd JSON from stdin (session_id + transcript_path).",
+        ),
     ] = False,
     from_notify_argv: Annotated[
         bool,
-        typer.Option("--from-notify-argv", hidden=True, help="Codex notify trigger (no session id); reparses the newest rollout file."),
+        typer.Option(
+            "--from-notify-argv",
+            help="Hook fast-path: Codex notify trigger (no session id); reparse the newest rollout file (idle-heuristic).",
+        ),
     ] = False,
 ) -> None:
     """Fast-path (--source/--session-id, optionally --transcript) or sweep (--sweep)."""
@@ -97,11 +103,34 @@ def install_hooks_cmd(
         typer.Option("--tool", help="claude-code | cursor | codex (repeatable; default: all three)."),
     ] = None,
 ) -> None:
-    """Write each tool's hook config, backing up any existing file to ~/.thread-keeper/backups/ first."""
+    """Write each tool's hook config, backing up any existing file to ~/.thread-keeper/backups/ first.
+
+    Commands written into hook configs use an absolute path to this install
+    (or ``python -m threadkeeper``) so SessionEnd works without ``thread-keeper``
+    being on PATH.
+    """
     tools = tuple(tool) if tool else None
     written = _hooks.install_hooks(tools)
     for name, path in written.items():
         typer.echo(f"{name}: wrote {path}")
+    typer.echo(f"hook command prefix: {' '.join(_hooks.resolve_cli_prefix())}")
+
+
+@app.command(name="uninstall-hooks")
+def uninstall_hooks_cmd(
+    tool: Annotated[
+        list[str] | None,
+        typer.Option("--tool", help="claude-code | cursor | codex (repeatable; default: all three)."),
+    ] = None,
+) -> None:
+    """Remove thread-keeper hook entries (backs up first; Codex may restore a prior notify)."""
+    tools = tuple(tool) if tool else None
+    touched = _hooks.uninstall_hooks(tools)
+    if not touched:
+        typer.echo("uninstall-hooks: nothing to remove")
+        return
+    for name, path in touched.items():
+        typer.echo(f"{name}: updated {path}")
 
 
 @app.command()

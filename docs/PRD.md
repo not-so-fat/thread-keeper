@@ -63,7 +63,7 @@ Each story is one loop the implementation must close. `[v1]` unless marked `[def
 
 ### US-1 — Automatic collection on session end `[v1]`
 **As an** operator, **I want** a finished agent session ingested without manual action, **so that** the store stays current on its own.
-- [ ] A Claude Code `SessionEnd` hook invokes `thread-keeper collect --source claude-code --session-id <id> --transcript <path>` and the session appears in the store.
+- [ ] A Claude Code `SessionEnd` hook invokes `thread-keeper collect --source claude-code --from-stdin` (stdin JSON with `session_id` + `transcript_path` per §7.3) and the session appears in the store. Equivalent: `--session-id <id> --transcript <path>`.
 - [ ] Re-running the same invocation produces **no duplicate** rows (idempotent per `F2.3`).
 - [ ] A failing/slow collector **never blocks** the agent tool (fire-and-forget; hook exits 0 regardless).
 
@@ -126,7 +126,7 @@ Grouped by engineering pillar. Every Req has an Acceptance. Tables exist because
 | F3.1 | `collect` CLI, two modes: **fast-path** (`--source/--session-id/--transcript` from a hook) and **sweep** (`--sweep`, walk all sources) | Both modes ingest into the same store; fast-path ingests exactly the named session |
 | F3.2 | Hook payload adapters for Claude Code `SessionEnd`, Cursor `sessionEnd`, Codex `notify`/`SessionEnd` (§7.3) | Given each tool's real stdin/argv payload, the collector resolves the right file(s) and source |
 | F3.3 | Change-detection watermark: per-file `last_size`+`last_mtime` (JSONL) / `last_hash` (Cursor) in `collection_state`. **On change → re-parse the whole file → `replace_session`** (never a partial/append read — see the whole-session invariant in §7.1); unchanged files skipped | Second consecutive sweep writes 0 net new/changed rows; a grown JSONL is re-parsed whole and *replaces* its prior session (correctly re-aggregated `usage`, no duplicate rows) |
-| F3.4 | `install-hooks` command: write the three tools' hook configs (backing up any existing file first) | Running it makes a real Claude Code session auto-collect; existing `settings.json`/`hooks.json` are backed up under `~/.thread-keeper/backups/` |
+| F3.4 | `install-hooks` / `uninstall-hooks`: write or remove the three tools' hook configs (backing up any existing file first); hook commands use an absolute CLI path (or `python -m threadkeeper`) so they work without `thread-keeper` on PATH | Running install-hooks makes a real Claude Code session auto-collect; the written command is absolute (not a bare `thread-keeper` relying on PATH); uninstall-hooks removes our entries; backups land under `~/.thread-keeper/backups/` |
 | F3.5 | Idle-heuristic for still-growing sessions (fast-path may fire mid-session for Codex per-turn `notify`) | A rollout file still being appended is re-parsed whole and *replaces* its prior session on the next trigger (via F2.3 + F3.3), never duplicated |
 | F3.6 | **Cold-start backfill**: the sweep has no install-time cutoff — its first run on a fresh store ingests the entire pre-existing history | Fresh store + `--sweep` → every pre-existing session across all three sources is present (not just files created after install) |
 | F3.7 | Configurable per-source roots (`--claude-root`/`--codex-root`/`--cursor-root` + env) + `--host <label>` origin tagging, for consolidating logs copied from other laptops | `--claude-root <copied dir> --host laptopB` ingests another machine's logs tagged `host=laptopB` (not the local machine); re-importing them is idempotent and keeps that label (F2.3) |
@@ -276,9 +276,12 @@ Legacy `{cacheWrite}` (single tier) is accepted and treated as 5m.
 
 ### 7.4 Collector CLI contract
 ```
-thread-keeper collect --source <claude-code|codex|cursor> --session-id <id> [--transcript <path>]   # fast-path (hook)
+thread-keeper collect --source <claude-code|codex|cursor> --session-id <id> [--transcript <path>]   # fast-path (explicit ids)
+thread-keeper collect --source <claude-code|cursor> --from-stdin                                    # fast-path: SessionEnd JSON on stdin (§7.3) — what install-hooks wires for Claude Code / Cursor
+thread-keeper collect --source codex --from-notify-argv                                             # fast-path: Codex notify (no session id; idle-heuristic F3.5) — what install-hooks wires for Codex
 thread-keeper collect --sweep [--source <...>] [--claude-root <dir>] [--codex-root <dir>] [--cursor-root <dir>] [--host <label>]  # backstop + cold-start backfill; roots default to this machine (host=local hostname); override roots + --host to ingest logs copied from another laptop
-thread-keeper install-hooks [--tool <claude-code|cursor|codex> ...]                                   # write hook configs (backs up first)
+thread-keeper install-hooks [--tool <claude-code|cursor|codex> ...]                                   # write hook configs (backs up first); commands use an absolute CLI path (or `python -m threadkeeper`) so SessionEnd works without PATH
+thread-keeper uninstall-hooks [--tool <claude-code|cursor|codex> ...]                                 # remove our hook entries (backs up first; Codex may restore a prior notify)
 thread-keeper status                                                                                  # store path, row counts, per-file watermarks
 ```
 Exit 0 always on the fast path (never block the agent tool). All ingestion routes through `replace_session` (F2.3) so any mode is idempotent.

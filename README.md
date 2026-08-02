@@ -19,6 +19,10 @@ crosses a boundary.
 git clone <this-repo>
 cd thread-keeper
 uv sync
+# Put `thread-keeper` on PATH for agent hooks (required before install-hooks
+# if you want a bare `thread-keeper` name; install-hooks also writes an
+# absolute path so SessionEnd works after `uv sync` alone).
+uv tool install -e .
 ```
 
 Requires Python ≥3.11 (pinned to 3.14 in `.python-version`) and
@@ -35,10 +39,10 @@ uv run thread-keeper collect --sweep
 uv run thread-keeper status
 
 # Optional: write SessionEnd / notify hook configs (backs up existing files
-# first). Live end-to-end verification on a real Claude Code session is still
-# an operator step — this command is ready, but v1's automated tests never
-# touch your live hook configs.
+# first). Commands use an absolute path to this install so they work even
+# when `thread-keeper` is not on PATH. Revert with `uninstall-hooks`.
 uv run thread-keeper install-hooks
+# uv run thread-keeper uninstall-hooks
 ```
 
 ```python
@@ -59,14 +63,18 @@ folder's README for setup with Jupyter.
 
 ```
 thread-keeper collect --source <claude-code|codex|cursor> --session-id <id> [--transcript <path>]
+thread-keeper collect --source <claude-code|cursor> --from-stdin          # Claude Code / Cursor SessionEnd (JSON on stdin)
+thread-keeper collect --source codex --from-notify-argv                   # Codex notify (idle-heuristic)
 thread-keeper collect --sweep [--source <...>] [--claude-root <dir>] [--codex-root <dir>] [--cursor-root <dir>] [--host <label>]
 thread-keeper install-hooks [--tool <claude-code|cursor|codex> ...]
+thread-keeper uninstall-hooks [--tool <claude-code|cursor|codex> ...]
 thread-keeper status
 ```
 
-- The first form is the **fast path**: invoked by a hook right after one
-  session ends, it ingests exactly that session and always exits 0 (it must
-  never block the agent tool).
+- The **fast path** is what hooks invoke: either `--session-id`/`--transcript`,
+  or `--from-stdin` (Claude Code / Cursor `SessionEnd` JSON payload), or
+  `--from-notify-argv` (Codex `notify`, no session id — reparses the newest
+  rollout). Always exits 0 (must never block the agent tool).
 - `--sweep` is the **backstop + cold-start backfill**: walks all three
   sources' log dirs and ingests anything changed since the last run,
   including your entire pre-existing history on a fresh store.
