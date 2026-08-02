@@ -298,7 +298,7 @@ The Chronicle `ts → commit` mapping (`git rev-list -1 --before=<ts> --all`, `d
 - **Platform:** macOS-first (paths verified there); keep the Chronicle env-override + platform-branch pattern (`THREAD_KEEPER_DATA_DIR`, plus per-source root overrides `THREAD_KEEPER_CLAUDE_ROOT`/`_CODEX_ROOT`/`_CURSOR_ROOT` and matching `--*-root` flags) so Linux/Windows are a later port **and** so a sweep can target log dirs copied from another laptop (US-7).
 - **Read-only on foreign data** is non-negotiable (Cursor WAL copy incl. `-wal`/`-shm`; never open a tool's DB read-write).
 - **Codegen consumption directives:** implementation repo is a NEW repo `thread-keeper`. Copy this PRD to `docs/PRD.md`; put the §7 schemas in `docs/contracts/*.json` (one file per shape); reference both from the repo's `CLAUDE.md` ("build one Req at a time, check acceptance boxes, use `docs/contracts/` verbatim"). Port order = the Chronicle files named in the Appendix.
-- **README acknowledgment (required):** the repo `README.md` must credit **[Chronicle](https://github.com/chizhangucb) by Chi Zhang** as the reference implementation whose offline extraction core this project ports to Python — a plain, sincere "Credits / Prior art" section linking Chronicle. This is a respect + provenance requirement, not optional boilerplate.
+- **README acknowledgment (required):** the repo `README.md` must credit **[Chronicle](https://github.com/chizhangucb/chronicle)** as the reference implementation whose offline extraction core this project ports to Python — a plain, sincere "Credits / Prior art" section linking the Chronicle project repo (not an account profile; no personal names unless the author has disclosed them for that purpose). This is a respect + provenance requirement, not optional boilerplate.
 
 ---
 
@@ -395,4 +395,4 @@ From the Opik note §7 + the "detect problems on agent usage" goal, ranked by th
 - Win condition inherited from the vision: not downloads — **~10 respected peers running it on their own data.** So: single-machine, offline, easy to run yourself.
 - The obstacle is **quality = consistency.** Keep the tool itself principled and un-random; a flaky collector or a duplicating store would violate the very value the project is about.
 - **The backlog is the point.** Years of existing sessions across several laptops *are* the accumulated asset — v1 backfills all of it (US-7), not just data from install day forward.
-- **Credit Chronicle / Chi in the README.** This ports Chi Zhang's extraction core; acknowledge it plainly (respect + provenance). Chi is also the named exemplar of a respected adopter in [[2026-07-31-personal-project-vision]] — the whole point is peers like him succeeding *with* these tools.
+- **Credit Chronicle in the README.** This ports Chronicle's extraction core; acknowledge the project plainly (respect + provenance), without naming individuals who haven't disclosed their name for that purpose.

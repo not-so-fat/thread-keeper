@@ -123,11 +123,10 @@ See [`CLAUDE.md`](CLAUDE.md) for how this repo is meant to be extended
 ## Credits / prior art
 
 thread-keeper is a from-scratch Python redraw of the offline log-extraction
-core of **[Chronicle](https://github.com/chizhangucb)**, a JS/Electron "time
-machine" for AI coding-agent sessions by **Chi Zhang**. Chronicle already
-solved parsing Claude Code, Codex, and Cursor's session logs offline;
-thread-keeper ports that extraction logic (schema, parsers, pricing tables)
-to Python and drops everything else (the desktop UI, live streaming, replay,
-sharing) to leave a lightweight, notebook-first collector. Sincere thanks to
-Chi for building and open-sourcing the reference implementation this project
-stands on.
+core of **[Chronicle](https://github.com/chizhangucb/chronicle)**, a JS/Electron "time
+machine" for AI coding-agent sessions. Chronicle already solved parsing
+Claude Code, Codex, and Cursor's session logs offline; thread-keeper ports
+that extraction logic (schema, parsers, pricing tables) to Python and drops
+everything else (the desktop UI, live streaming, replay, sharing) to leave a
+lightweight, notebook-first collector. Thanks to the Chronicle project for
+the open-source reference implementation this work stands on.
