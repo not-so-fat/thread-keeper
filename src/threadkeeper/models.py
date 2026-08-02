@@ -76,6 +76,31 @@ def cache_write_tokens(u: dict) -> int:
     return split or (u.get("cacheWrite") or 0)
 
 
+def token_totals_of(usage: dict | None) -> dict | None:
+    """Sum token counts across every model in a ``sessions.usage`` blob.
+
+    Returns analysis-column names (``input_tokens``, ``output_tokens``,
+    ``cache_write_tokens``, ``cache_read_tokens``). ``None`` when usage is
+    missing/empty — unknown, not zero.
+    """
+    if not usage:
+        return None
+    totals = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+    }
+    for u in usage.values():
+        if not u:
+            continue
+        totals["input_tokens"] += u.get("input") or 0
+        totals["output_tokens"] += u.get("output") or 0
+        totals["cache_write_tokens"] += cache_write_tokens(u)
+        totals["cache_read_tokens"] += u.get("cacheRead") or 0
+    return totals
+
+
 def cost_breakdown_of_model(model: str | None, u: dict | None) -> dict | None:
     """Per-category USD cost for one model's aggregated token usage; None if unpriced.
 
@@ -101,21 +126,22 @@ def cost_of_model(model: str | None, u: dict | None) -> float | None:
     return sum(b.values()) if b is not None else None
 
 
-def cost_breakdown_of(usage: dict | None) -> dict:
+def cost_breakdown_of(usage: dict | None) -> dict | None:
     """Aggregate cost breakdown (USD) across every model in a ``sessions.usage`` blob.
 
     ``usage`` is the decoded dict of ``{model_id: {input, output, ...}}``
-    (PRD §7.2). Unpriced models are skipped. Always returns all four keys,
-    zeroed when usage is empty/None.
+    (PRD §7.2). Unpriced models are skipped. Returns ``None`` when usage is
+    missing/empty (unknown ≠ $0). A present blob (including all-zero tokens)
+    always returns all four keys.
 
     The returned ``cacheWrite`` key is a single USD bucket: the 5m and 1h
     cache-write *token* tiers from §7.2 are priced separately then summed
     here (input acceptance of a legacy single ``cacheWrite`` tier is
     unchanged — see ``cost_breakdown_of_model``).
     """
-    totals = {"input": 0.0, "output": 0.0, "cacheWrite": 0.0, "cacheRead": 0.0}
     if not usage:
-        return totals
+        return None
+    totals = {"input": 0.0, "output": 0.0, "cacheWrite": 0.0, "cacheRead": 0.0}
     for model, u in usage.items():
         b = cost_breakdown_of_model(model, u)
         if b is not None:
@@ -124,6 +150,10 @@ def cost_breakdown_of(usage: dict | None) -> dict:
     return totals
 
 
-def cost_of(usage: dict | None) -> float:
-    """Total USD cost across every model in a ``sessions.usage`` blob."""
-    return sum(cost_breakdown_of(usage).values())
+def cost_of(usage: dict | None) -> float | None:
+    """Total USD cost across every model in a ``sessions.usage`` blob.
+
+    ``None`` when usage is missing/empty; ``0.0`` when a present blob prices to zero.
+    """
+    b = cost_breakdown_of(usage)
+    return sum(b.values()) if b is not None else None

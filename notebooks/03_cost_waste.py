@@ -4,17 +4,17 @@
 # US-5(c): a cost/waste pass over the store, per the Opik-cipx note's
 # offline-reconstructable attribution (PRD §1, §7.2-7.3, Appendix B):
 #
-# 1. **Per-model token totals + list-price cost estimate** (`tk.cost_of`,
-#    `tk.cost_breakdown_of` — F4.2, ported from Chronicle's `src/models.js`).
-# 2. **Tool-call frequency per session** — a first cut at "enabled-but-never-called"
+# 1. **Coverage by source** — which of Claude Code / Codex / Cursor actually
+#    carry token usage (`has_usage`). Missing ≠ $0.
+# 2. **Per-session / per-model list-price cost** via enriched `tk.sessions()`
+#    columns and `tk.usage_long()` (F4.2 pricing tables).
+# 3. **Tool-call frequency per session** — a first cut at "enabled-but-never-called"
 #    waste. thread-keeper's logs only carry tools that were *called*, not the
 #    full set that was *available* in a session, so a true unused-tool report
-#    needs that extra signal (see the "Deviations" note in the project's
-#    top-level summary) — this notebook ships the calling side of that
-#    picture today.
+#    needs that extra signal — this notebook ships the calling side today.
 #
 # Runs top-to-bottom against a freshly collected store — including an empty
-# one.
+# one. Cursor usage is not ingested (latent `usageData` only).
 
 # %%
 import pandas as pd
@@ -29,18 +29,49 @@ messages = tk.messages()
 print(f"{len(sessions)} sessions, {len(messages)} messages in the store.")
 
 # %% [markdown]
-# ## Per-session cost estimate
+# ## Usage coverage by source
+#
+# Fraction of sessions with a non-empty `usage` blob. Codex fills from
+# `token_count`; Claude Code from `message.usage`; Cursor stays unavailable.
 
 # %%
 if sessions.empty:
     print("No sessions yet — run `thread-keeper collect --sweep` first.")
-    cost_df = pd.DataFrame(columns=["id", "source", "summary", "input", "output", "cacheWrite", "cacheRead", "total_cost_usd"])
+    coverage = pd.DataFrame(columns=["source", "sessions", "with_usage", "has_usage_rate"])
 else:
-    breakdowns = sessions["usage"].map(tk.cost_breakdown_of)
-    cost_df = pd.DataFrame(list(breakdowns))
-    cost_df["total_cost_usd"] = cost_df.sum(axis=1)
-    cost_df = pd.concat([sessions[["id", "source", "summary"]].reset_index(drop=True), cost_df], axis=1)
-    cost_df = cost_df.sort_values("total_cost_usd", ascending=False)
+    coverage = (
+        sessions.groupby("source", dropna=False)
+        .agg(sessions=("id", "count"), with_usage=("has_usage", "sum"))
+        .reset_index()
+    )
+    coverage["has_usage_rate"] = coverage["with_usage"] / coverage["sessions"]
+
+coverage
+
+# %% [markdown]
+# ## Per-session cost estimate (sessions with usage only)
+
+# %%
+cost_cols = [
+    "id",
+    "source",
+    "summary",
+    "cost_usd",
+    "input_tokens",
+    "output_tokens",
+    "cache_write_tokens",
+    "cache_read_tokens",
+    "models",
+]
+if sessions.empty or not sessions["has_usage"].any():
+    print("No sessions with usage yet.")
+    cost_df = pd.DataFrame(columns=cost_cols)
+else:
+    cost_df = (
+        sessions.loc[sessions["has_usage"], cost_cols]
+        .sort_values("cost_usd", ascending=False)
+        .reset_index(drop=True)
+    )
 
 cost_df.head(20)
 
@@ -49,27 +80,25 @@ cost_df.head(20)
 
 # %%
 if not cost_df.empty:
-    cost_df.groupby("source")["total_cost_usd"].sum().sort_values(ascending=False)
+    cost_df.groupby("source")["cost_usd"].sum().sort_values(ascending=False)
 else:
     print("Nothing to aggregate yet.")
 
 # %% [markdown]
-# ## Per-model token totals across the whole store
+# ## Per-model token totals + cost across the whole store
 
 # %%
-if sessions.empty:
-    per_model = pd.DataFrame(columns=["model", "input", "output", "cacheRead"])
+long = tk.usage_long()
+if long.empty:
+    per_model = pd.DataFrame(
+        columns=["model", "input_tokens", "output_tokens", "cache_read_tokens", "cost_usd"]
+    )
+    print("No per-model usage rows yet.")
 else:
-    model_rows = []
-    for usage in sessions["usage"]:
-        if not usage:
-            continue
-        for model, u in usage.items():
-            model_rows.append({"model": model, "input": u.get("input", 0), "output": u.get("output", 0), "cacheRead": u.get("cacheRead", 0)})
     per_model = (
-        pd.DataFrame(model_rows).groupby("model").sum().sort_values("input", ascending=False)
-        if model_rows
-        else pd.DataFrame(columns=["input", "output", "cacheRead"])
+        long.groupby("model")[["input_tokens", "output_tokens", "cache_read_tokens", "cost_usd"]]
+        .sum()
+        .sort_values("input_tokens", ascending=False)
     )
 
 per_model

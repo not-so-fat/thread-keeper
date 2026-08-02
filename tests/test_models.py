@@ -45,9 +45,43 @@ def test_cost_of_usage_blob_aggregates_across_models():
     assert models.cost_of(usage) == breakdown["input"] + breakdown["output"] + breakdown["cacheWrite"] + breakdown["cacheRead"]
 
 
-def test_cost_of_empty_or_none_usage_is_zero():
-    assert models.cost_of(None) == 0.0
-    assert models.cost_of({}) == 0.0
+def test_cost_of_empty_or_none_usage_is_none():
+    assert models.cost_of(None) is None
+    assert models.cost_of({}) is None
+    assert models.cost_breakdown_of(None) is None
+    assert models.cost_breakdown_of({}) is None
+
+
+def test_cost_of_present_all_zero_usage_is_zero():
+    usage = {"claude-opus-4-8": {"input": 0, "output": 0, "cacheWrite5m": 0, "cacheRead": 0}}
+    assert models.cost_of(usage) == 0.0
+    assert models.cost_breakdown_of(usage) == {
+        "input": 0.0,
+        "output": 0.0,
+        "cacheWrite": 0.0,
+        "cacheRead": 0.0,
+    }
+
+
+def test_token_totals_of_sums_and_none_when_missing():
+    assert models.token_totals_of(None) is None
+    assert models.token_totals_of({}) is None
+    usage = {
+        "claude-opus-4-8": {
+            "input": 10,
+            "output": 5,
+            "cacheWrite5m": 2,
+            "cacheWrite1h": 3,
+            "cacheRead": 7,
+        },
+        "claude-haiku": {"input": 1, "output": 1, "cacheWrite": 4, "cacheRead": 0},
+    }
+    assert models.token_totals_of(usage) == {
+        "input_tokens": 11,
+        "output_tokens": 6,
+        "cache_write_tokens": 9,  # 2+3 from first; 4 legacy from second
+        "cache_read_tokens": 7,
+    }
 
 
 def test_cache_write_tokens_combines_tiers_or_falls_back_to_legacy():
