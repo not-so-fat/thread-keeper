@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/collection_state.json",
+  "title": "collection_state",
+  "description": "A change-detector, not a read cursor. Whole-session invariant: on change, the collector re-parses the whole file and calls replace_session — never a partial/append read.",
+  "type": "object",
+  "required": ["file_path", "source"],
+  "properties": {
+    "file_path": { "type": "string", "description": "PK; the source file (or state.vscdb path)" },
+    "source": { "enum": ["claude-code", "codex", "cursor"] },
+    "last_size": { "type": ["integer", "null"], "description": "file size (bytes) at last collect — CHANGE DETECTOR only, never a read boundary" },
+    "last_mtime": { "type": ["string", "null"], "description": "file mtime (ISO) at last collect" },
+    "last_hash": { "type": ["string", "null"], "description": "content hash — Cursor: sha256 over (composerId → fullConversationHeadersOnly) for workspace ItemTable composers and/or the global cursorDiskKV composerData store (plus a compact legacy aichat tab summary for workspace DBs); JSONL: optional tie-breaker" },
+    "last_collected_at": { "type": "string", "description": "ISO" }
+  }
+}

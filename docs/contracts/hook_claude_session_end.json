@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/hook_claude_session_end.json",
+  "title": "Claude Code SessionEnd hook payload (stdin JSON)",
+  "description": "The fast path.",
+  "type": "object",
+  "required": ["session_id", "transcript_path"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "transcript_path": { "type": "string", "description": "the .jsonl to ingest directly" },
+    "cwd": { "type": "string" },
+    "reason": { "enum": ["clear", "resume", "logout", "prompt_input_exit", "bypass_permissions_disabled", "other"] }
+  }
+}

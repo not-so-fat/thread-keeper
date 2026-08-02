@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/project.json",
+  "title": "project",
+  "type": "object",
+  "required": ["id", "path", "name", "created_at"],
+  "properties": {
+    "id": { "type": "integer", "description": "PK autoincrement" },
+    "path": { "type": "string", "description": "physical cwd (project root); UNIQUE natural key" },
+    "name": { "type": "string", "description": "basename(path)" },
+    "created_at": { "type": "string", "description": "ISO; default datetime('now')" }
+  }
+}

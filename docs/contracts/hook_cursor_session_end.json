@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/hook_cursor_session_end.json",
+  "title": "Cursor sessionEnd hook payload (stdin JSON)",
+  "description": "Fire-and-forget — DB write may lag; the collector re-reads the workspace DB (do not read synchronously in the hook).",
+  "type": "object",
+  "required": ["session_id"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "reason": { "type": ["string", "null"] },
+    "duration_ms": { "type": ["integer", "null"] },
+    "is_background_agent": { "type": ["boolean", "null"] },
+    "final_status": { "type": ["string", "null"] }
+  }
+}
