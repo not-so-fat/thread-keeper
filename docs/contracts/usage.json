@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/usage.json",
+  "title": "sessions.usage",
+  "description": "JSON string value; keys are model ids. Legacy {cacheWrite} (single tier) is accepted and treated as 5m.",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "required": ["input", "output"],
+    "properties": {
+      "input": { "type": "integer" },
+      "output": { "type": "integer" },
+      "cacheWrite5m": { "type": "integer" },
+      "cacheWrite1h": { "type": "integer" },
+      "cacheRead": { "type": "integer" }
+    }
+  }
+}

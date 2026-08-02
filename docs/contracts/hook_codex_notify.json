@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/hook_codex_notify.json",
+  "title": "Codex notify payload (single JSON argv)",
+  "description": "Per-turn; the collector applies the idle-heuristic (F3.5). Newer Codex hooks.json SessionEnd may also be used where available.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": { "enum": ["agent-turn-complete", "approval-requested"] },
+    "last-assistant-message": { "type": ["string", "null"] }
+  }
+}

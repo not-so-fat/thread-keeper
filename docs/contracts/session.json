@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/session.json",
+  "title": "session",
+  "type": "object",
+  "required": ["id", "project_id", "source", "file_path"],
+  "properties": {
+    "id": { "type": "string", "description": "source-native id; prefixed codex-/cursor-chat-/cursor-composer- to avoid collisions" },
+    "project_id": { "type": "integer" },
+    "source": { "enum": ["claude-code", "codex", "cursor"] },
+    "file_path": { "type": "string", "description": "source log file (or state.vscdb for cursor)" },
+    "started_at": { "type": ["string", "null"] },
+    "ended_at": { "type": ["string", "null"] },
+    "message_count": { "type": "integer", "default": 0 },
+    "first_prompt": { "type": ["string", "null"], "description": "first user msg, <=200 chars" },
+    "context_tokens": { "type": ["integer", "null"], "description": "real ctx size; populated on import only" },
+    "name": { "type": ["string", "null"], "description": "USER override — PRESERVED across re-import" },
+    "summary": { "type": ["string", "null"], "description": "tool title (last custom-title) — re-derived" },
+    "usage": { "type": ["string", "null"], "description": "JSON per 7.2 — re-derived" },
+    "host": { "type": ["string", "null"], "description": "ORIGIN-machine label (where the session ran), set per source-root at ingest: --host <label> if given, else local hostname for local roots — NOT the collecting machine. PRESERVED across re-import unless --host is passed (F2.3). Enables cross-laptop attribution (US-7/OD-7)." }
+  }
+}

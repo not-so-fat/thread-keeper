@@ -1,0 +1,10 @@
+{"type":"summary","summary":"Old summary title"}
+{"sessionId":"cc-session-1","cwd":"/Users/test/project","type":"user","message":{"content":"Fix the auth bug"},"uuid":"u1","timestamp":"2026-07-01T10:00:00Z"}
+{"type":"custom-title","customTitle":"Fix auth bug attempt 1"}
+{"sessionId":"cc-session-1","type":"user","message":{"content":"<command-name>clear</command-name>"},"uuid":"u2","timestamp":"2026-07-01T10:00:05Z"}
+{"sessionId":"cc-session-1","type":"user","message":{"content":[{"type":"text","text":"<system-reminder>ignore me</system-reminder>"}]},"uuid":"u3","timestamp":"2026-07-01T10:00:06Z"}
+{"sessionId":"cc-session-1","isSidechain":true,"type":"user","message":{"content":"side chain question"},"uuid":"u4","timestamp":"2026-07-01T10:00:07Z"}
+{"sessionId":"cc-session-1","type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"thinking","thinking":"Let me look at the auth module"},{"type":"tool_use","id":"tool1","name":"read_file","input":{"path":"auth.py"}}],"usage":{"input_tokens":1000,"output_tokens":50,"cache_read_input_tokens":200,"cache_creation_input_tokens":0}},"uuid":"a1","timestamp":"2026-07-01T10:00:10Z"}
+{"sessionId":"cc-session-1","type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool1","content":"def auth(): ..."}]},"uuid":"u5","timestamp":"2026-07-01T10:00:12Z"}
+{"sessionId":"cc-session-1","cwd":"/Users/test/project/subdir","type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"text","text":"Found the bug, fixing now."}],"usage":{"input_tokens":1200,"output_tokens":80,"cache_read_input_tokens":200,"cache_creation_input_tokens":100,"cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":0}}},"uuid":"a2","timestamp":"2026-07-01T10:00:20Z"}
+{"type":"custom-title","customTitle":"Fix OAuth redirect bug"}

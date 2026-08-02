@@ -1,0 +1,126 @@
+"""thread-keeper CLI (typer, OD-3): ``collect``, ``install-hooks``, ``status``."""
+
+from __future__ import annotations
+
+import json
+import sys
+from typing import Annotated
+
+import typer
+
+from . import collect as _collect
+from . import db as _db
+from . import hooks as _hooks
+
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    help="Local-first collector for Claude Code / Codex / Cursor agent sessions.",
+)
+
+
+@app.command()
+def collect(
+    source: Annotated[str | None, typer.Option("--source", help="claude-code | codex | cursor")] = None,
+    session_id: Annotated[str | None, typer.Option("--session-id")] = None,
+    transcript: Annotated[str | None, typer.Option("--transcript")] = None,
+    sweep: Annotated[bool, typer.Option("--sweep", help="Walk all sources' log dirs (backstop + cold-start backfill).")] = False,
+    claude_root: Annotated[str | None, typer.Option("--claude-root", envvar="THREAD_KEEPER_CLAUDE_ROOT")] = None,
+    codex_root: Annotated[str | None, typer.Option("--codex-root", envvar="THREAD_KEEPER_CODEX_ROOT")] = None,
+    cursor_root: Annotated[str | None, typer.Option("--cursor-root", envvar="THREAD_KEEPER_CURSOR_ROOT")] = None,
+    host: Annotated[str | None, typer.Option("--host", help="Origin-machine label; else local hostname.")] = None,
+    from_stdin: Annotated[
+        bool,
+        typer.Option("--from-stdin", hidden=True, help="Read a Claude Code/Cursor SessionEnd hook payload (JSON) from stdin."),
+    ] = False,
+    from_notify_argv: Annotated[
+        bool,
+        typer.Option("--from-notify-argv", hidden=True, help="Codex notify trigger (no session id); reparses the newest rollout file."),
+    ] = False,
+) -> None:
+    """Fast-path (--source/--session-id, optionally --transcript) or sweep (--sweep)."""
+    if sweep:
+        conn = _db.connect()
+        sources = (source,) if source else None
+        results = _collect.collect_sweep(
+            conn, sources=sources, claude_root=claude_root, codex_root=codex_root, cursor_root=cursor_root, host=host
+        )
+        exit_code = 0
+        for src, r in results.items():
+            typer.echo(f"{src}: ingested={r.ingested} unchanged={r.skipped_unchanged} errors={r.errored}")
+            for e in r.errors:
+                typer.echo(f"  ! {e}", err=True)
+            if r.errored:
+                exit_code = 1
+        raise typer.Exit(code=exit_code)
+
+    # Fast path — never blocks the calling agent tool (F3.1, NFR-5): always exit 0.
+    try:
+        if from_notify_argv:
+            conn = _db.connect()
+            _collect.collect_codex_notify(conn, codex_root=codex_root, host=host)
+            raise typer.Exit(code=0)
+
+        resolved_session_id = session_id
+        resolved_transcript = transcript
+        if from_stdin:
+            payload = json.loads(sys.stdin.read() or "{}")
+            resolved_session_id = resolved_session_id or payload.get("session_id")
+            resolved_transcript = resolved_transcript or payload.get("transcript_path")
+
+        if not source or not resolved_session_id:
+            typer.echo("collect: --source and --session-id are required (or --from-stdin)", err=True)
+            raise typer.Exit(code=0)
+
+        conn = _db.connect()
+        _collect.collect_fast_path(
+            conn,
+            source=source,
+            session_id=resolved_session_id,
+            transcript=resolved_transcript,
+            claude_root=claude_root,
+            codex_root=codex_root,
+            cursor_root=cursor_root,
+            host=host,
+        )
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(f"collect: {exc}", err=True)
+    raise typer.Exit(code=0)
+
+
+@app.command(name="install-hooks")
+def install_hooks_cmd(
+    tool: Annotated[
+        list[str] | None,
+        typer.Option("--tool", help="claude-code | cursor | codex (repeatable; default: all three)."),
+    ] = None,
+) -> None:
+    """Write each tool's hook config, backing up any existing file to ~/.thread-keeper/backups/ first."""
+    tools = tuple(tool) if tool else None
+    written = _hooks.install_hooks(tools)
+    for name, path in written.items():
+        typer.echo(f"{name}: wrote {path}")
+
+
+@app.command()
+def status() -> None:
+    """Store path, row counts, and per-file watermarks."""
+    conn = _db.connect()
+    info = _collect.status(conn)
+    typer.echo(f"store: {info['db_path']}")
+    for table, count in info["counts"].items():
+        typer.echo(f"  {table}: {count}")
+    typer.echo("sessions by source:")
+    for src, count in info["sessions_by_source"].items():
+        typer.echo(f"  {src}: {count}")
+    typer.echo(f"watermarks: {len(info['watermarks'])} file(s) tracked")
+
+
+def main() -> None:
+    app()
+
+
+if __name__ == "__main__":
+    main()

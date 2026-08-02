@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thread-keeper.local/contracts/message.json",
+  "title": "message",
+  "type": "object",
+  "required": ["id", "session_id", "seq", "kind"],
+  "properties": {
+    "id": { "type": "integer" },
+    "session_id": { "type": "string" },
+    "seq": { "type": "integer", "description": "0-based ordinal = insertion order" },
+    "uuid": { "type": ["string", "null"], "description": "Claude Code only" },
+    "ts": { "type": ["string", "null"], "description": "ISO 8601" },
+    "kind": { "enum": ["user", "assistant", "thinking", "tool_use", "tool_result"] },
+    "text": { "type": ["string", "null"] },
+    "tool_name": { "type": ["string", "null"] },
+    "tool_input": { "type": ["string", "null"], "description": "JSON STRING of tool args" },
+    "tool_use_id": { "type": ["string", "null"], "description": "pairs tool_use<->tool_result" },
+    "model": { "type": ["string", "null"] }
+  }
+}
