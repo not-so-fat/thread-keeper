@@ -25,7 +25,7 @@ opening it in Jupyter with the Jupytext extension, or by re-running
 |---|---|
 | `01_instruction_churn.py` | Which sessions had the most correction / re-prompt churn? |
 | `02_stale_knowledge.py` | Which sessions reference files/symbols that no longer exist? Is CLAUDE.md/AGENTS.md growing unbounded? |
-| `03_cost_waste.py` | Per-model token totals and cost (via `tk.cost_of`); which tools are called the least (unused-tool signal)? |
+| `03_cost_waste.py` | Usage coverage by source (`has_usage`); per-session / per-model cost via enriched `tk.sessions()` + `tk.usage_long()`; unused-tool signal |
 
 Each notebook runs top-to-bottom against a freshly collected store, including
 an empty one (no manual edits required — that's the US-5 acceptance bar).

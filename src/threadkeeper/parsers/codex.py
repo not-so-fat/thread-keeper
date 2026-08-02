@@ -2,6 +2,15 @@
 
 Reads ``~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`` (payload-unwrapped).
 Session ids are prefixed ``codex-`` to avoid collisions with other sources.
+
+Token usage (``token_count`` / ``total_token_usage``) is mapped into the PRD
+§7.2 blob. Cursor has no mapped usage path; Claude Code maps in its own parser.
+
+Source → §7.2 name map (Codex; sample-cited identities):
+  input      = max(0, input_tokens - cached - cache_write) # both are subsets
+  output     = output_tokens                               # do NOT add reasoning_*
+  cacheRead  = cached_input_tokens
+  cacheWrite5m = cache_write_input_tokens                  # no 1h tier in Codex
 """
 
 from __future__ import annotations
@@ -26,6 +35,33 @@ def _item_text(content) -> str:
     return ""
 
 
+def codex_usage_to_blob(total_token_usage: dict | None) -> dict | None:
+    """Map Codex ``total_token_usage`` into one §7.2 per-model usage dict.
+
+    Observed rollout identities: ``total_tokens == input_tokens + output_tokens``,
+    ``cached_input_tokens <= input_tokens``, ``reasoning_output_tokens <= output_tokens``.
+    OpenAI-style accounting treats cache-read/write as *subsets* of ``input_tokens``
+    (same pattern as ``cached_input_tokens``; see promptfoo #7546 / Responses
+    ``input_tokens_details``). So uncached input is
+    ``input_tokens - cached - cache_write`` — never bill a token at both the
+    input rate and a cache rate. Do not add ``reasoning_output_tokens`` into
+    ``output`` (already inside).
+    """
+    if not total_token_usage:
+        return None
+    inp = total_token_usage.get("input_tokens") or 0
+    cached = total_token_usage.get("cached_input_tokens") or 0
+    out = total_token_usage.get("output_tokens") or 0
+    cw = total_token_usage.get("cache_write_input_tokens") or 0
+    return {
+        "input": max(0, inp - cached - cw),
+        "output": out,
+        "cacheWrite5m": cw,
+        "cacheWrite1h": 0,
+        "cacheRead": cached,
+    }
+
+
 def parse_codex_session(file: str | Path) -> tuple[dict, list[dict]]:
     """Parse one Codex rollout JSONL file into ``(session, events)``. Whole-file read."""
     file = str(file)
@@ -33,6 +69,8 @@ def parse_codex_session(file: str | Path) -> tuple[dict, list[dict]]:
     session_id = os.path.splitext(os.path.basename(file))[0]
     cwd: str | None = None
     first_prompt: str | None = None
+    model: str | None = None
+    last_total_usage: dict | None = None
 
     with open(file, encoding="utf-8") as fh:
         for line in fh:
@@ -49,6 +87,8 @@ def parse_codex_session(file: str | Path) -> tuple[dict, list[dict]]:
             if p.get("id") and p.get("cwd"):
                 cwd = p["cwd"]
                 session_id = p["id"]
+            if isinstance(p.get("model"), str) and p["model"]:
+                model = p["model"]
             t = p.get("type") or o.get("type")
 
             if t == "message" and p.get("role") == "user":
@@ -85,8 +125,23 @@ def parse_codex_session(file: str | Path) -> tuple[dict, list[dict]]:
                         "tool_use_id": p.get("call_id"),
                     }
                 )
+            elif t == "token_count":
+                # Last total_token_usage wins as session aggregate. Do not set
+                # context_tokens — Codex total_tokens / model_context_window are
+                # different quantities from Claude's last prompt-side ctx size.
+                info = p.get("info") or {}
+                tot = info.get("total_token_usage")
+                if tot:
+                    last_total_usage = tot
 
     timestamps = sorted(e["ts"] for e in events if e.get("ts"))
+    per_model = codex_usage_to_blob(last_total_usage)
+    usage = None
+    if per_model is not None:
+        # Last-model-wins: Codex total_token_usage is session-cumulative with no
+        # per-model split, so the whole blob is attributed to the last seen model.
+        usage = json.dumps({model or "unknown": per_model})
+
     session = {
         "id": f"codex-{session_id}",
         "source": "codex",
@@ -95,6 +150,7 @@ def parse_codex_session(file: str | Path) -> tuple[dict, list[dict]]:
         "started_at": timestamps[0] if timestamps else None,
         "ended_at": timestamps[-1] if timestamps else None,
         "first_prompt": first_prompt,
+        "usage": usage,
         "skipped": 0,
     }
     return session, events
