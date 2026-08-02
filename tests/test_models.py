@@ -63,6 +63,12 @@ def test_cost_of_present_all_zero_usage_is_zero():
     }
 
 
+def test_cost_of_unpriced_only_usage_is_none():
+    usage = {"totally-unknown-model-xyz": {"input": 100, "output": 20}}
+    assert models.cost_of(usage) is None
+    assert models.cost_breakdown_of(usage) is None
+
+
 def test_token_totals_of_sums_and_none_when_missing():
     assert models.token_totals_of(None) is None
     assert models.token_totals_of({}) is None

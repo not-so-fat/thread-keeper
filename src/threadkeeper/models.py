@@ -142,18 +142,22 @@ def cost_breakdown_of(usage: dict | None) -> dict | None:
     if not usage:
         return None
     totals = {"input": 0.0, "output": 0.0, "cacheWrite": 0.0, "cacheRead": 0.0}
+    any_priced = False
     for model, u in usage.items():
         b = cost_breakdown_of_model(model, u)
         if b is not None:
+            any_priced = True
             for k in totals:
                 totals[k] += b[k]
-    return totals
+    # Present blob but no priced model → unknown cost (None), not $0.
+    return totals if any_priced else None
 
 
 def cost_of(usage: dict | None) -> float | None:
     """Total USD cost across every model in a ``sessions.usage`` blob.
 
-    ``None`` when usage is missing/empty; ``0.0`` when a present blob prices to zero.
+    ``None`` when usage is missing/empty or every model is unpriced;
+    ``0.0`` when a priced model is present and totals to zero.
     """
     b = cost_breakdown_of(usage)
     return sum(b.values()) if b is not None else None
