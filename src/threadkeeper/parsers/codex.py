@@ -7,7 +7,7 @@ Token usage (``token_count`` / ``total_token_usage``) is mapped into the PRD
 §7.2 blob. Cursor has no mapped usage path; Claude Code maps in its own parser.
 
 Source → §7.2 name map (Codex; sample-cited identities):
-  input      = max(0, input_tokens - cached_input_tokens)  # input is a superset
+  input      = max(0, input_tokens - cached - cache_write) # both are subsets
   output     = output_tokens                               # do NOT add reasoning_*
   cacheRead  = cached_input_tokens
   cacheWrite5m = cache_write_input_tokens                  # no 1h tier in Codex
@@ -38,11 +38,14 @@ def _item_text(content) -> str:
 def codex_usage_to_blob(total_token_usage: dict | None) -> dict | None:
     """Map Codex ``total_token_usage`` into one §7.2 per-model usage dict.
 
-    Arithmetic is locked to observed rollout identities
-    (``total_tokens == input_tokens + output_tokens``,
-    ``cached_input_tokens <= input_tokens``,
-    ``reasoning_output_tokens <= output_tokens``): subtract cached from input;
-    never add ``reasoning_output_tokens`` into ``output``.
+    Observed rollout identities: ``total_tokens == input_tokens + output_tokens``,
+    ``cached_input_tokens <= input_tokens``, ``reasoning_output_tokens <= output_tokens``.
+    OpenAI-style accounting treats cache-read/write as *subsets* of ``input_tokens``
+    (same pattern as ``cached_input_tokens``; see promptfoo #7546 / Responses
+    ``input_tokens_details``). So uncached input is
+    ``input_tokens - cached - cache_write`` — never bill a token at both the
+    input rate and a cache rate. Do not add ``reasoning_output_tokens`` into
+    ``output`` (already inside).
     """
     if not total_token_usage:
         return None
@@ -51,7 +54,7 @@ def codex_usage_to_blob(total_token_usage: dict | None) -> dict | None:
     out = total_token_usage.get("output_tokens") or 0
     cw = total_token_usage.get("cache_write_input_tokens") or 0
     return {
-        "input": max(0, inp - cached),
+        "input": max(0, inp - cached - cw),
         "output": out,
         "cacheWrite5m": cw,
         "cacheWrite1h": 0,
@@ -135,6 +138,8 @@ def parse_codex_session(file: str | Path) -> tuple[dict, list[dict]]:
     per_model = codex_usage_to_blob(last_total_usage)
     usage = None
     if per_model is not None:
+        # Last-model-wins: Codex total_token_usage is session-cumulative with no
+        # per-model split, so the whole blob is attributed to the last seen model.
         usage = json.dumps({model or "unknown": per_model})
 
     session = {

@@ -33,6 +33,8 @@ print(f"{len(sessions)} sessions, {len(messages)} messages in the store.")
 #
 # Fraction of sessions with a non-empty `usage` blob. Codex fills from
 # `token_count`; Claude Code from `message.usage`; Cursor stays unavailable.
+# Note: `has_usage=True` with an unpriced model yields `cost_usd=NaN`
+# (tokens present, cost unknown) — `groupby(...).sum()` skips those rows.
 
 # %%
 if sessions.empty:

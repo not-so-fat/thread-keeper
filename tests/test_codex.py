@@ -25,6 +25,28 @@ def test_codex_usage_to_blob_subtracts_cached_and_ignores_reasoning():
     assert codex.codex_usage_to_blob(None) is None
 
 
+def test_codex_usage_to_blob_subtracts_cache_write_from_input():
+    # cache_write is a subset of input_tokens (OpenAI-style details), so uncached
+    # input must exclude both cached and cache_write to avoid double-billing.
+    tot = {
+        "input_tokens": 1000,
+        "cached_input_tokens": 400,
+        "cache_write_input_tokens": 100,
+        "output_tokens": 50,
+        "reasoning_output_tokens": 10,
+        "total_tokens": 1050,
+    }
+    assert tot["total_tokens"] == tot["input_tokens"] + tot["output_tokens"]
+    blob = codex.codex_usage_to_blob(tot)
+    assert blob == {
+        "input": 500,  # 1000 - 400 - 100
+        "output": 50,
+        "cacheWrite5m": 100,
+        "cacheWrite1h": 0,
+        "cacheRead": 400,
+    }
+
+
 def test_parse_codex_session_fixture(fixtures_dir):
     file = fixtures_dir / "codex" / "2026" / "07" / "01" / "rollout-2026-07-01T10-00-00-xyz.jsonl"
     session, events = codex.parse_codex_session(file)
@@ -40,9 +62,9 @@ def test_parse_codex_session_fixture(fixtures_dir):
     usage = json.loads(session["usage"])
     assert list(usage.keys()) == ["gpt-5.6-sol"]
     assert usage["gpt-5.6-sol"] == {
-        "input": 54857 - 36352,
+        "input": 54857 - 36352 - 512,
         "output": 581,
-        "cacheWrite5m": 0,
+        "cacheWrite5m": 512,
         "cacheWrite1h": 0,
         "cacheRead": 36352,
     }

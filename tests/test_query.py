@@ -97,6 +97,39 @@ def test_usage_long_one_row_per_session_model(conn):
     )
 
 
+def test_sessions_unpriced_model_has_usage_but_nan_cost(conn):
+    pid = db.upsert_project(conn, "/repo/one")
+    session = {
+        "id": "s-unpriced",
+        "project_id": pid,
+        "source": "codex",
+        "file_path": "/tmp/s-unpriced.jsonl",
+        "started_at": "2026-07-01T10:00:00Z",
+        "usage": json.dumps({"totally-unknown-model-xyz": {"input": 100, "output": 20}}),
+    }
+    db.replace_session(conn, session, [{"kind": "user", "text": "hi"}])
+    row = query.sessions(conn).iloc[0]
+    assert bool(row["has_usage"]) is True
+    assert row["input_tokens"] == 100
+    assert row["output_tokens"] == 20
+    assert math.isnan(row["cost_usd"])
+
+
+def test_sessions_empty_store_has_enrichment_columns(conn):
+    df = query.sessions(conn)
+    assert df.empty
+    for col in (
+        "has_usage",
+        "cost_usd",
+        "input_tokens",
+        "output_tokens",
+        "cache_write_tokens",
+        "cache_read_tokens",
+        "models",
+    ):
+        assert col in df.columns
+
+
 def test_messages_decodes_tool_input_json_column_and_filters_by_session(conn):
     _seed(conn)
     df = query.messages("s1", conn)
