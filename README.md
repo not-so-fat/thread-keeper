@@ -53,9 +53,13 @@ sessions.loc[sessions["has_usage"]].sort_values("cost_usd", ascending=False)
 tk.usage_long().groupby("model")["cost_usd"].sum()
 sid = sessions.iloc[0]["id"]
 messages = tk.messages(sid)          # DataFrame, one row per normalized event
-# cost_of returns None when usage is missing/empty (unknown ≠ $0)
 tk.cost_of(sessions.iloc[0]["usage"])
 ```
+
+**API note (`cost_of` / `cost_breakdown_of`):** these return `None` when usage is
+missing/empty **or** every model in the blob is unpriced (unknown ≠ `$0`; previously
+empty usage returned `0.0`). Prefer `sessions["cost_usd"]` / filter `has_usage`, or
+handle `None` before arithmetic.
 
 Starter analysis notebooks live in [`notebooks/`](notebooks/) — see that
 folder's README for setup with Jupyter.
