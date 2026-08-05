@@ -322,3 +322,41 @@ def test_session_timing_keeps_all_nat_session():
     assert "s" in t.index
     assert t.loc["s"]["n_turns"] == 1
     assert t.loc["s"]["model_sec"] == 0.0
+
+
+def test_session_timing_partition_invariant():
+    # buckets must sum to the message-timestamp span (R5: arithmetic partition)
+    m = _msgs([
+        ("s", 0, "2026-07-01T10:00:00Z", "user", 0),
+        ("s", 1, "2026-07-01T10:00:04Z", "assistant", 0),
+        ("s", 2, "2026-07-01T10:00:04Z", "tool_use", 0),
+        ("s", 3, "2026-07-01T10:00:06Z", "tool_result", 0),
+        ("s", 4, "2026-07-01T10:00:09Z", "assistant", 0),
+        ("s", 5, "2026-07-01T10:00:39Z", "user", 0),
+    ])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"})).loc["s"]
+    span = 39.0  # last ts - first ts
+    assert t["model_sec"] + t["tool_exec_sec"] + t["human_idle_sec"] == span
+
+
+def test_session_timing_clips_negative_gaps():
+    # out-of-order timestamps must clip to 0, never contribute a negative bucket
+    m = _msgs([
+        ("s", 0, "2026-07-01T10:00:05Z", "user", 0),
+        ("s", 1, "2026-07-01T10:00:00Z", "assistant", 0),  # earlier than prev
+    ])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"})).loc["s"]
+    assert t["model_sec"] == 0.0
+    assert t["human_idle_sec"] == 0.0
+
+
+def test_session_timing_all_injected_zero_turns():
+    # a session whose only user messages are injected has zero human turns and no idle
+    m = _msgs([
+        ("s", 0, "2026-07-01T10:00:00Z", "user", 1),      # injected
+        ("s", 1, "2026-07-01T10:00:02Z", "assistant", 0),
+        ("s", 2, "2026-07-01T10:00:03Z", "user", 1),      # injected
+    ])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"})).loc["s"]
+    assert t["n_turns"] == 0
+    assert t["human_idle_sec"] == 0.0
