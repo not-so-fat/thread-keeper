@@ -132,6 +132,7 @@ def parse_claude_session(file: str | Path) -> tuple[dict, list[dict]]:
     skipped = 0
     context_tokens: int | None = None
     usage_by_model: dict[str, dict] = {}
+    seen_message_ids: set[str] = set()  # dedup usage across duplicate log entries
 
     with open(file, encoding="utf-8") as fh:
         for line in fh:
@@ -165,23 +166,34 @@ def parse_claude_session(file: str | Path) -> tuple[dict, list[dict]]:
 
             # Real context-window size: the prompt side of the LAST main-chain API
             # call. Same pass aggregates per-model token usage.
-            if not o.get("isSidechain") and o.get("type") == "assistant" and (o.get("message") or {}).get("usage"):
-                u = o["message"]["usage"]
-                ctx = (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
-                if ctx > 0:
-                    context_tokens = ctx
-                model = o["message"].get("model") or "unknown"
-                agg = usage_by_model.setdefault(model, {"input": 0, "output": 0, "cacheWrite5m": 0, "cacheWrite1h": 0, "cacheRead": 0})
-                agg["input"] += u.get("input_tokens") or 0
-                agg["output"] += u.get("output_tokens") or 0
-                agg["cacheRead"] += u.get("cache_read_input_tokens") or 0
-                # 5-minute and 1-hour cache writes are billed at different rates.
-                cc = u.get("cache_creation")
-                if cc and (cc.get("ephemeral_5m_input_tokens") is not None or cc.get("ephemeral_1h_input_tokens") is not None):
-                    agg["cacheWrite5m"] += cc.get("ephemeral_5m_input_tokens") or 0
-                    agg["cacheWrite1h"] += cc.get("ephemeral_1h_input_tokens") or 0
-                else:
-                    agg["cacheWrite5m"] += u.get("cache_creation_input_tokens") or 0  # default tier when unsplit
+            msg = o.get("message") or {}
+            if not o.get("isSidechain") and o.get("type") == "assistant" and msg.get("usage"):
+                # Claude Code writes the same assistant API response to the log more
+                # than once (streaming partials / session replay); the copies share
+                # one message.id and carry identical usage. Count each response's usage
+                # ONCE — summing every copy inflates tokens and cost ~2-3x. Verified
+                # against raw transcripts (distinct message.id == the real API calls);
+                # first copy wins, which is safe since the copies are identical.
+                msg_id = msg.get("id")
+                if msg_id is None or msg_id not in seen_message_ids:
+                    if msg_id is not None:
+                        seen_message_ids.add(msg_id)
+                    u = msg["usage"]
+                    ctx = (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+                    if ctx > 0:
+                        context_tokens = ctx
+                    model = msg.get("model") or "unknown"
+                    agg = usage_by_model.setdefault(model, {"input": 0, "output": 0, "cacheWrite5m": 0, "cacheWrite1h": 0, "cacheRead": 0})
+                    agg["input"] += u.get("input_tokens") or 0
+                    agg["output"] += u.get("output_tokens") or 0
+                    agg["cacheRead"] += u.get("cache_read_input_tokens") or 0
+                    # 5-minute and 1-hour cache writes are billed at different rates.
+                    cc = u.get("cache_creation")
+                    if cc and (cc.get("ephemeral_5m_input_tokens") is not None or cc.get("ephemeral_1h_input_tokens") is not None):
+                        agg["cacheWrite5m"] += cc.get("ephemeral_5m_input_tokens") or 0
+                        agg["cacheWrite1h"] += cc.get("ephemeral_1h_input_tokens") or 0
+                    else:
+                        agg["cacheWrite5m"] += u.get("cache_creation_input_tokens") or 0  # default tier when unsplit
 
             for e in parse_claude_line(o):
                 events.append(e)
