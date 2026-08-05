@@ -12,6 +12,25 @@ from pathlib import Path
 
 DEFAULT_CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
+# Harness-injected user messages that are NOT human turns. `isMeta` catches
+# Stop-hook feedback and caveats; these envelope prefixes catch the rest that
+# arrive with isMeta=False (e.g. background task notifications). Verified against
+# a 60-session scan (see specs/2026-08-05-agent-timing-columns-design.md).
+CLAUDE_CODE_INJECTED_PREFIXES = (
+    "<task-notification>",
+    "<command-name>",
+    "<local-command",
+    "<system-reminder>",
+    "Stop hook feedback",
+    "[Request interrupted",
+)
+
+
+def _cc_is_injected(o: dict, text: str | None) -> bool:
+    if o.get("isMeta"):
+        return True
+    return bool(text) and text.startswith(CLAUDE_CODE_INJECTED_PREFIXES)
+
 
 def reduce_cwd(pick: str, seen: set[str]) -> str:
     """A session can record subdirectory cwds (e.g. ``<repo>/server``). Walk the
@@ -50,7 +69,8 @@ def parse_claude_line(o: dict) -> list[dict]:
         if isinstance(content, str):
             if content.startswith("<command-name>") or content.startswith("<local-command"):
                 return events
-            events.append({"uuid": o.get("uuid"), "ts": o.get("timestamp"), "kind": "user", "text": content})
+            events.append({"uuid": o.get("uuid"), "ts": o.get("timestamp"), "kind": "user",
+                           "text": content, "injected": _cc_is_injected(o, content)})
         elif isinstance(content, list):
             for block in content:
                 if not isinstance(block, dict):
@@ -70,7 +90,8 @@ def parse_claude_line(o: dict) -> list[dict]:
                     and (block.get("text") or "").strip()
                     and not block["text"].startswith("<system-reminder>")
                 ):
-                    events.append({"uuid": o.get("uuid"), "ts": o.get("timestamp"), "kind": "user", "text": block["text"]})
+                    events.append({"uuid": o.get("uuid"), "ts": o.get("timestamp"), "kind": "user",
+                                   "text": block["text"], "injected": _cc_is_injected(o, block["text"])})
     elif o.get("type") == "assistant" and o.get("message"):
         model = o["message"].get("model")
         for block in o["message"].get("content") or []:

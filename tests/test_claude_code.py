@@ -53,3 +53,26 @@ def test_parse_claude_line_skips_sidechain():
 def test_reduce_cwd_collapses_to_shortest_seen_ancestor():
     seen = {"/repo", "/repo/server", "/repo/server/api"}
     assert claude_code.reduce_cwd("/repo/server/api", seen) == "/repo"
+
+
+def _user_line(text, *, is_meta=False):
+    o = {"type": "user", "uuid": "u1", "timestamp": "2026-07-01T10:00:00Z",
+         "message": {"content": text}}
+    if is_meta:
+        o["isMeta"] = True
+    return o
+
+
+def test_parse_marks_ismeta_user_as_injected():
+    ev = claude_code.parse_claude_line(_user_line("Stop hook feedback:\n...", is_meta=True))
+    assert ev and ev[0]["kind"] == "user" and ev[0]["injected"] is True
+
+
+def test_parse_marks_task_notification_as_injected():
+    ev = claude_code.parse_claude_line(_user_line("<task-notification>\n<task-id>x</task-id>"))
+    assert ev and ev[0]["injected"] is True
+
+
+def test_parse_marks_real_human_as_not_injected():
+    ev = claude_code.parse_claude_line(_user_line("how do they connect to playroom"))
+    assert ev and ev[0]["injected"] is False
