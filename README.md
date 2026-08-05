@@ -10,8 +10,12 @@ No web UI, no daemon, no cloud, no network calls. Just: **collect → normalize
 → analyze.**
 
 The product name is **thread-keeper**. The PyPI / install distribution name is
-[`thk`](https://pypi.org/project/thk/) (`uv tool install thk`, `uvx thk`,
-`pip install thk`).
+[`thk`](https://pypi.org/project/thk/). The Python import is `threadkeeper`.
+How you run the CLI depends on the install path:
+
+- `uv tool install thk` / `pip install thk` → `thk` or `thread-keeper` on PATH
+- `uvx thk …` → one-shot; prefix every invocation with `uvx thk`
+- clone / `uv sync` → `uv run thread-keeper` (or `uv run thk`)
 
 See [`docs/PRD.md`](docs/PRD.md) for the full product spec and
 [`docs/contracts/`](docs/contracts/) for the JSON Schemas of every shape that
@@ -20,7 +24,7 @@ crosses a boundary.
 ## Install
 
 ```bash
-# From PyPI:
+# From PyPI (puts `thk` and `thread-keeper` on PATH):
 uv tool install thk
 # or: pip install thk
 
@@ -28,9 +32,9 @@ uv tool install thk
 git clone <this-repo>
 cd thread-keeper
 uv sync
-# Put `thread-keeper` (and `thk`) on PATH for agent hooks (required before
-# install-hooks if you want a bare `thread-keeper` name; install-hooks also
-# writes an absolute path so SessionEnd works after `uv sync` alone).
+# Optional: put `thread-keeper` / `thk` on PATH for agent hooks (required
+# before install-hooks if you want a bare name; install-hooks also writes an
+# absolute path so SessionEnd works after `uv sync` alone).
 uv tool install -e .
 ```
 
@@ -42,16 +46,26 @@ Requires Python ≥3.11 (pinned to 3.14 in `.python-version`) and
 ```bash
 # Backfill your ENTIRE existing history from Claude Code / Codex / Cursor —
 # no "only since install" cutoff.
-uv run thread-keeper collect --sweep
+#
+# After `uv tool install thk` (or `pip install thk`):
+thk collect --sweep
+# One-shot without installing on PATH:
+# uvx thk collect --sweep
+# From a clone (no tool install):
+# uv run thread-keeper collect --sweep
 
 # See what's in the store.
-uv run thread-keeper status
+thk status
+# uvx thk status
+# uv run thread-keeper status
 
 # Optional: write SessionEnd / notify hook configs (backs up existing files
 # first). Commands use an absolute path to this install so they work even
-# when `thread-keeper` is not on PATH. Revert with `uninstall-hooks`.
-uv run thread-keeper install-hooks
-# uv run thread-keeper uninstall-hooks
+# when the CLI is not on PATH. Revert with `uninstall-hooks`.
+thk install-hooks
+# thk uninstall-hooks
+# uvx thk install-hooks
+# uv run thread-keeper install-hooks
 ```
 
 ```python
@@ -74,6 +88,9 @@ Starter analysis notebooks live in [`notebooks/`](notebooks/) — see that
 folder's README for setup with Jupyter.
 
 ## CLI
+
+`thk` and `thread-keeper` are the same CLI (both console scripts). Examples
+below use `thread-keeper`; substitute `thk` after a PyPI tool install.
 
 ```
 thread-keeper collect --source <claude-code|codex|cursor> --session-id <id> [--transcript <path>]

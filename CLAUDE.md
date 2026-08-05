@@ -21,6 +21,15 @@ thread-keeper is spec-driven. Before writing code:
    closes the current Req, and prefer options already used elsewhere in this
    codebase over new ones.
 
+## Packaging / naming (do not re-litigate)
+
+- **Product / CLI:** `thread-keeper` (and alias `thk`)
+- **PyPI distribution name:** `thk` — `pyproject.toml` `name = "thk"`. Never
+  publish as `thread-keeper` / `threadkeeper` (PyPI similarity block / taken).
+- **Python import:** `threadkeeper`
+- Before a release: check latest on
+  `https://pypi.org/pypi/thk/json` and bump from *that* version.
+
 ## Non-negotiable invariants (violating these is always a bug, not a tradeoff)
 
 - **Offline.** No network calls anywhere in the library or CLI.
