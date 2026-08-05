@@ -87,6 +87,40 @@ handle `None` before arithmetic.
 Starter analysis notebooks live in [`notebooks/`](notebooks/) — see that
 folder's README for setup with Jupyter.
 
+## Session timing columns
+
+`tk.sessions()` splits each session's wall-clock into mutually-exclusive buckets
+so you define "performance" yourself — throughput, latency, tool overhead —
+instead of the library imposing one. Where a session has tool events,
+`human_idle_sec + model_sec + tool_exec_sec == session_span_sec`.
+
+| column | definition |
+|---|---|
+| `human_idle_sec` | Time waiting on **you** — Σ gaps before a genuine human message. Excluded from agent-active time. |
+| `model_sec` | Agent working: model latency + generation + thinking, **including API errors/retries**. |
+| `tool_exec_sec` | Tool run time (`tool_use` → `tool_result`). |
+| `active_sec` | Agent-active wall clock = `session_span_sec − human_idle_sec`. |
+| `session_span_sec` | `ended_at − started_at`. |
+| `n_turns` | Count of **genuine human** turns. |
+| `n_tool_calls` | Count of `tool_use` events. |
+
+"Genuine human" excludes harness injections (Stop-hook feedback, task
+notifications, `isMeta`, …), flagged per message by `messages.injected` — without
+it, ~75% of Claude Code `user` messages would be miscounted as human turns.
+`tool_exec_sec` / `n_tool_calls` are `NaN`, never `0`, for a source that cannot
+reliably observe tools (e.g. Cursor) when a session shows none — an honest
+"unmeasurable," not a false zero.
+
+Compose your own metric from the raw columns — e.g. throughput on model time:
+
+```python
+s = tk.sessions()
+s["tokens_per_sec"] = s["output_tokens"] / s["model_sec"].where(s["model_sec"] > 0)
+```
+
+(These columns need `injected` populated; an existing store predating the field
+backfills with `thk collect --sweep --force` — see [CLI](#cli).)
+
 ## CLI
 
 `thk` and `thread-keeper` are the same CLI (both console scripts). Examples
