@@ -124,3 +124,38 @@ def test_collection_state_hash_based_change_detection(conn):
     db.set_collection_state(conn, "/tmp/state.vscdb", "cursor", last_hash="abc")
     assert db.has_changed(conn, "/tmp/state.vscdb", content_hash="abc") is False
     assert db.has_changed(conn, "/tmp/state.vscdb", content_hash="def") is True
+
+
+def test_replace_session_persists_injected_flag(conn):
+    pid = db.upsert_project(conn, "/repo/one")
+    session = {"id": "s-inj", "project_id": pid, "source": "claude-code",
+               "file_path": "/tmp/s-inj.jsonl", "started_at": "2026-07-01T10:00:00Z"}
+    events = [
+        {"kind": "user", "text": "real human", "ts": "2026-07-01T10:00:00Z"},
+        {"kind": "user", "text": "<task-notification>", "ts": "2026-07-01T10:00:01Z", "injected": True},
+    ]
+    db.replace_session(conn, session, events)
+    rows = conn.execute(
+        "SELECT text, injected FROM messages WHERE session_id='s-inj' ORDER BY seq"
+    ).fetchall()
+    assert rows[0]["injected"] == 0
+    assert rows[1]["injected"] == 1
+
+
+def test_init_schema_adds_injected_to_legacy_messages_table(tmp_path):
+    import sqlite3
+    from threadkeeper import db
+    p = tmp_path / "legacy.db"
+    raw = sqlite3.connect(str(p))
+    # legacy messages table WITHOUT the injected column
+    raw.executescript(
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " session_id TEXT NOT NULL, seq INTEGER NOT NULL, uuid TEXT, ts TEXT,"
+        " kind TEXT NOT NULL, text TEXT, tool_name TEXT, tool_input TEXT,"
+        " tool_use_id TEXT, model TEXT);"
+    )
+    raw.commit(); raw.close()
+    conn = db.connect(p)  # runs init_schema -> must migrate
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
+    assert "injected" in cols
+    conn.close()

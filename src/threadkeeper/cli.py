@@ -25,6 +25,7 @@ def collect(
     session_id: Annotated[str | None, typer.Option("--session-id")] = None,
     transcript: Annotated[str | None, typer.Option("--transcript")] = None,
     sweep: Annotated[bool, typer.Option("--sweep", help="Walk all sources' log dirs (backstop + cold-start backfill).")] = False,
+    force: Annotated[bool, typer.Option("--force", help="With --sweep: re-parse every file, ignoring change-detection watermarks (use to backfill a parser/schema change).")] = False,
     claude_root: Annotated[str | None, typer.Option("--claude-root", envvar="THREAD_KEEPER_CLAUDE_ROOT")] = None,
     codex_root: Annotated[str | None, typer.Option("--codex-root", envvar="THREAD_KEEPER_CODEX_ROOT")] = None,
     cursor_root: Annotated[str | None, typer.Option("--cursor-root", envvar="THREAD_KEEPER_CURSOR_ROOT")] = None,
@@ -49,7 +50,7 @@ def collect(
         conn = _db.connect()
         sources = (source,) if source else None
         results = _collect.collect_sweep(
-            conn, sources=sources, claude_root=claude_root, codex_root=codex_root, cursor_root=cursor_root, host=host
+            conn, sources=sources, claude_root=claude_root, codex_root=codex_root, cursor_root=cursor_root, host=host, force=force
         )
         exit_code = 0
         for src, r in results.items():

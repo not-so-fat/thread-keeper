@@ -53,3 +53,42 @@ def test_parse_claude_line_skips_sidechain():
 def test_reduce_cwd_collapses_to_shortest_seen_ancestor():
     seen = {"/repo", "/repo/server", "/repo/server/api"}
     assert claude_code.reduce_cwd("/repo/server/api", seen) == "/repo"
+
+
+def _user_line(text, *, is_meta=False):
+    o = {"type": "user", "uuid": "u1", "timestamp": "2026-07-01T10:00:00Z",
+         "message": {"content": text}}
+    if is_meta:
+        o["isMeta"] = True
+    return o
+
+
+def test_parse_marks_ismeta_user_as_injected():
+    ev = claude_code.parse_claude_line(_user_line("Stop hook feedback:\n...", is_meta=True))
+    assert ev and ev[0]["kind"] == "user" and ev[0]["injected"] is True
+
+
+def test_parse_marks_task_notification_as_injected():
+    ev = claude_code.parse_claude_line(_user_line("<task-notification>\n<task-id>x</task-id>"))
+    assert ev and ev[0]["injected"] is True
+
+
+def test_parse_marks_real_human_as_not_injected():
+    ev = claude_code.parse_claude_line(_user_line("how do they connect to playroom"))
+    assert ev and ev[0]["injected"] is False
+
+
+def test_parse_marks_each_injection_envelope_prefix():
+    # string-content user messages opening with an injection envelope (no isMeta)
+    # must be flagged injected. (<command-name>/<local-command> early-return before
+    # this point, so they're covered separately below.)
+    for text in ("[Request interrupted by the user]", "<system-reminder>be careful",
+                 "Stop hook feedback:\ncontinue"):
+        ev = claude_code.parse_claude_line(_user_line(text))
+        assert ev and ev[0]["kind"] == "user" and ev[0]["injected"] is True, text
+
+
+def test_parse_command_envelope_produces_no_event():
+    # <command-name>/<local-command> strings are dropped outright (no event at all)
+    assert claude_code.parse_claude_line(_user_line("<command-name>/foo</command-name>")) == []
+    assert claude_code.parse_claude_line(_user_line("<local-command-stdout>x</local-command-stdout>")) == []

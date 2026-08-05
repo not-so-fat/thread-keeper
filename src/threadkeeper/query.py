@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import numpy as np
 import pandas as pd
 
 from . import db as _db
@@ -125,6 +126,53 @@ def _enrich_sessions(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _messages_for_timing(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Minimal message columns for timing — avoids SELECT * and the tool_input
+    JSON decode that messages() does (sessions() calls this on every invocation)."""
+    df = pd.read_sql_query(
+        "SELECT session_id, seq, ts, kind, injected FROM messages ORDER BY session_id, seq",
+        conn,
+    )
+    return _as_utc_timestamps(df, ("ts",))
+
+
+def _attach_timing(df: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
+    """Attach per-session timing columns (Task 3's ``_session_timing``) plus
+    ``session_span_sec`` / ``active_sec`` to a sessions frame.
+
+    ``active_sec = session_span_sec - human_idle_sec``. Sessions with no
+    messages get 0.0 for ``model_sec``/``human_idle_sec``/``n_turns`` (not
+    NaN) since a session with nothing to time is genuinely idle-free, not
+    unmeasurable. ``tool_exec_sec``/``n_tool_calls`` are zero-filled only for
+    those no-message sessions; when ``_session_timing`` reports a session but
+    leaves its tool columns NaN (source can't reliably measure tools and the
+    session has no tool events), that NaN is intentional and is preserved.
+    """
+    span = (df["ended_at"] - df["started_at"]).dt.total_seconds() if not df.empty else pd.Series(dtype=float)
+    df["session_span_sec"] = span
+    if df.empty:
+        for c in _TIMING_COLS:
+            df[c] = pd.Series(dtype=float)
+        df["active_sec"] = pd.Series(dtype=float)
+        return df
+    msgs = _messages_for_timing(conn)
+    timing = _session_timing(msgs, df.set_index("id")["source"])
+    has_timing = df["id"].isin(timing.index)
+    df = df.merge(timing, left_on="id", right_index=True, how="left")
+    # never-NaN-from-_session_timing columns: safe to zero-fill (covers no-message sessions)
+    df[["model_sec", "human_idle_sec"]] = df[["model_sec", "human_idle_sec"]].fillna(0.0)
+    df["n_turns"] = df["n_turns"].fillna(0)
+    # tool columns: zero ONLY for sessions absent from timing (no messages) AND
+    # whose source reliably logs tools; message-less sessions from other sources
+    # keep NaN (can't claim 0 tool calls when tools can't be reliably observed)
+    absent_reliable = ((~has_timing) & df["source"].isin(_TOOL_RELIABLE_SOURCES)).to_numpy()
+    df.loc[absent_reliable, ["tool_exec_sec", "n_tool_calls"]] = df.loc[
+        absent_reliable, ["tool_exec_sec", "n_tool_calls"]
+    ].fillna(0.0)
+    df["active_sec"] = df["session_span_sec"] - df["human_idle_sec"]
+    return df
+
+
 def projects(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     """All projects as a DataFrame; ``created_at`` as UTC timestamps."""
     c = _connect(conn)
@@ -139,6 +187,16 @@ def sessions(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     ``cache_write_tokens``, ``cache_read_tokens``, ``models``. Missing usage
     yields ``has_usage=False`` and NaN numerics. ``started_at`` / ``ended_at``
     are timezone-aware UTC timestamps.
+
+    Also attaches per-session **timing** columns (seconds), decomposing the
+    span into mutually-exclusive buckets so callers define their own
+    performance metrics: ``human_idle_sec`` (gaps before genuine human
+    messages), ``model_sec`` (model latency + generation, incl. API
+    errors/retries), ``tool_exec_sec`` (tool run time), ``active_sec``
+    (= ``session_span_sec - human_idle_sec``), ``session_span_sec``, plus counts
+    ``n_turns`` (genuine human turns) and ``n_tool_calls``. ``tool_exec_sec`` /
+    ``n_tool_calls`` are NaN for a source that cannot reliably observe tools
+    (e.g. Cursor) when a session shows none — never a misleading 0.
     """
     c = _connect(conn)
     df = pd.read_sql_query("SELECT * FROM sessions ORDER BY started_at", c)
@@ -147,7 +205,8 @@ def sessions(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
         df["usage"] = _decode_json_column(df["usage"])
     else:
         df["usage"] = None
-    return _enrich_sessions(df)
+    df = _enrich_sessions(df)
+    return _attach_timing(df, c)
 
 
 def usage_long(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
@@ -182,6 +241,58 @@ def usage_long(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
                 )
     df = pd.DataFrame(rows, columns=_USAGE_LONG_COLUMNS)
     return _as_utc_timestamps(df, ("started_at",))
+
+
+_HUMAN = "user"
+_TOOL_RELIABLE_SOURCES = frozenset({"claude-code", "codex"})
+_TIMING_COLS = ["model_sec", "tool_exec_sec", "human_idle_sec", "n_turns", "n_tool_calls"]
+
+
+def _session_timing(messages: pd.DataFrame, sources: pd.Series) -> pd.DataFrame:
+    """Per-session timing buckets + counts, indexed by session_id.
+
+    Each inter-message gap (ordered by seq) is attributed to one bucket:
+    a gap before a genuine human message (kind=='user' and not injected) is
+    idle; a gap after a tool_use is tool execution; everything else is model
+    working time (latency, generation, incl. API errors). Buckets partition the
+    span where tool events exist. Tool columns are NaN for a source that does
+    not reliably log tools when the session shows none (avoids overclaiming 0).
+    """
+    if messages.empty:
+        return pd.DataFrame(columns=_TIMING_COLS)
+    m = messages.sort_values(["session_id", "seq"])
+    injected = m["injected"].fillna(0).astype(bool)
+    is_human = m["kind"].eq(_HUMAN) & ~injected
+    g = m.groupby("session_id", sort=False)
+    diff = g["ts"].diff().dt.total_seconds()
+    gap = diff.clip(lower=0)
+    prev_kind = g["kind"].shift(1)
+    # gap BEFORE a genuine-human row == human idle; after a tool_use == tool exec
+    bucket = np.where(is_human.to_numpy(), "human_idle_sec",
+             np.where(prev_kind.eq("tool_use").to_numpy(), "tool_exec_sec", "model_sec"))
+    bucket = np.where(diff.isna().to_numpy(), None, bucket)
+    tb = (pd.DataFrame({"session_id": m["session_id"].to_numpy(), "gap": gap.to_numpy(), "bucket": bucket})
+            .dropna(subset=["bucket"])
+            .pivot_table(index="session_id", columns="bucket", values="gap", aggfunc="sum", fill_value=0.0))
+    for c in ("model_sec", "tool_exec_sec", "human_idle_sec"):
+        if c not in tb.columns:
+            tb[c] = 0.0
+    sid = m["session_id"]
+    counts = pd.DataFrame({
+        "n_turns": is_human.groupby(sid, sort=False).sum().astype(float),
+        "n_tool_calls": m["kind"].eq("tool_use").groupby(sid, sort=False).sum().astype(float),
+        "_has_tools": m["kind"].isin(["tool_use", "tool_result"]).groupby(sid, sort=False).any(),
+    })
+    # counts covers every session (unconditional groupby); tb only covers
+    # sessions with at least one attributable gap. Join onto counts so a
+    # single-message or all-NaT session is never dropped.
+    out = counts.join(tb)
+    for c in ("model_sec", "tool_exec_sec", "human_idle_sec"):
+        out[c] = out[c].fillna(0.0)
+    src = sources.reindex(out.index)
+    unmeasurable = (~src.isin(_TOOL_RELIABLE_SOURCES)) & (~out["_has_tools"].fillna(False))
+    out.loc[unmeasurable.to_numpy(), ["tool_exec_sec", "n_tool_calls"]] = np.nan
+    return out[_TIMING_COLS]
 
 
 def messages(session_id: str | None = None, conn: sqlite3.Connection | None = None) -> pd.DataFrame:

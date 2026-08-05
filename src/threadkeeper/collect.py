@@ -103,11 +103,11 @@ def _ingest_claude_file(conn, file: Path, host: str | None, host_explicit: bool,
     return True
 
 
-def sweep_claude_code(conn, root: Path, host: str | None, host_explicit: bool) -> SweepResult:
+def sweep_claude_code(conn, root: Path, host: str | None, host_explicit: bool, *, force: bool = False) -> SweepResult:
     result = SweepResult()
     for file in _iter_claude_session_files(root):
         try:
-            if _ingest_claude_file(conn, file, host, host_explicit):
+            if _ingest_claude_file(conn, file, host, host_explicit, force=force):
                 result.ingested += 1
             else:
                 result.skipped_unchanged += 1
@@ -142,11 +142,11 @@ def _ingest_codex_file(conn, file: Path, host: str | None, host_explicit: bool, 
     return True
 
 
-def sweep_codex(conn, root: Path, host: str | None, host_explicit: bool) -> SweepResult:
+def sweep_codex(conn, root: Path, host: str | None, host_explicit: bool, *, force: bool = False) -> SweepResult:
     result = SweepResult()
     for file in _walk_jsonl(root):
         try:
-            if _ingest_codex_file(conn, file, host, host_explicit):
+            if _ingest_codex_file(conn, file, host, host_explicit, force=force):
                 result.ingested += 1
             else:
                 result.skipped_unchanged += 1
@@ -218,7 +218,7 @@ def _ingest_cursor_global(conn, user_dir: Path, host: str | None, host_explicit:
     return True
 
 
-def sweep_cursor(conn, root: Path, host: str | None, host_explicit: bool) -> SweepResult:
+def sweep_cursor(conn, root: Path, host: str | None, host_explicit: bool, *, force: bool = False) -> SweepResult:
     """Walk workspace DBs (legacy chat) + global composer store (modern Cursor)."""
     result = SweepResult()
     ws_root = root / "workspaceStorage"
@@ -227,7 +227,7 @@ def sweep_cursor(conn, root: Path, host: str | None, host_explicit: bool) -> Swe
             if not (d / "state.vscdb").exists():
                 continue
             try:
-                if _ingest_cursor_workspace(conn, d, root, host, host_explicit):
+                if _ingest_cursor_workspace(conn, d, root, host, host_explicit, force=force):
                     result.ingested += 1
                 else:
                     result.skipped_unchanged += 1
@@ -235,7 +235,7 @@ def sweep_cursor(conn, root: Path, host: str | None, host_explicit: bool) -> Swe
                 result.errored += 1
                 result.errors.append(f"{d}: {exc}")
     try:
-        if _ingest_cursor_global(conn, root, host, host_explicit):
+        if _ingest_cursor_global(conn, root, host, host_explicit, force=force):
             result.ingested += 1
         else:
             # unchanged OR no global DB — only count skip when the DB exists
@@ -275,18 +275,22 @@ def collect_sweep(
     codex_root: str | None = None,
     cursor_root: str | None = None,
     host: str | None = None,
+    force: bool = False,
 ) -> dict[str, SweepResult]:
-    """Walk one or more sources' log dirs, ingesting anything changed since last run."""
+    """Walk one or more sources' log dirs, ingesting anything changed since last
+    run. ``force=True`` bypasses the change-detection watermark and re-parses
+    every file — use it to backfill a schema/parser change (e.g. a new
+    per-message field) across an existing store."""
     host_explicit = host is not None
     effective_host = host if host_explicit else default_host()
     sources = sources or SOURCES
     results: dict[str, SweepResult] = {}
     if "claude-code" in sources:
-        results["claude-code"] = sweep_claude_code(conn, resolve_claude_root(claude_root), effective_host, host_explicit)
+        results["claude-code"] = sweep_claude_code(conn, resolve_claude_root(claude_root), effective_host, host_explicit, force=force)
     if "codex" in sources:
-        results["codex"] = sweep_codex(conn, resolve_codex_root(codex_root), effective_host, host_explicit)
+        results["codex"] = sweep_codex(conn, resolve_codex_root(codex_root), effective_host, host_explicit, force=force)
     if "cursor" in sources:
-        results["cursor"] = sweep_cursor(conn, resolve_cursor_root(cursor_root), effective_host, host_explicit)
+        results["cursor"] = sweep_cursor(conn, resolve_cursor_root(cursor_root), effective_host, host_explicit, force=force)
     return results
 
 

@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS messages (
   tool_name TEXT,
   tool_input TEXT,
   tool_use_id TEXT,
-  model TEXT
+  model TEXT,
+  injected INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, seq);
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
@@ -87,7 +88,21 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotently bring a pre-existing ``messages`` table up to the current schema.
+
+    ``CREATE TABLE IF NOT EXISTS`` in ``SCHEMA`` is a no-op against a real,
+    already-existing ``messages`` table (e.g. the on-disk
+    ``~/.thread-keeper/thread-keeper.db`` that predates the ``injected``
+    column), so new columns must be added here via ``ALTER TABLE``.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
+    if "injected" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN injected INTEGER NOT NULL DEFAULT 0")
 
 
 def upsert_project(conn: sqlite3.Connection, physical_path: str) -> int:
@@ -155,8 +170,8 @@ def replace_session(
         )
         conn.executemany(
             """INSERT INTO messages
-                 (session_id, seq, uuid, ts, kind, text, tool_name, tool_input, tool_use_id, model)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 (session_id, seq, uuid, ts, kind, text, tool_name, tool_input, tool_use_id, model, injected)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     session["id"],
@@ -169,6 +184,7 @@ def replace_session(
                     e.get("tool_input"),
                     e.get("tool_use_id"),
                     e.get("model"),
+                    1 if e.get("injected") else 0,
                 )
                 for i, e in enumerate(events)
             ],

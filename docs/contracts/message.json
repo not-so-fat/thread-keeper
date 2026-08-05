@@ -15,6 +15,7 @@
     "tool_name": { "type": ["string", "null"] },
     "tool_input": { "type": ["string", "null"], "description": "JSON STRING of tool args" },
     "tool_use_id": { "type": ["string", "null"], "description": "pairs tool_use<->tool_result" },
-    "model": { "type": ["string", "null"] }
+    "model": { "type": ["string", "null"] },
+    "injected": { "type": "integer", "enum": [0, 1], "default": 0, "description": "1 = harness-injected user message (isMeta or a known injection envelope), not a human turn; 0 = genuine human message. Non-user kinds and non-Claude-Code sources: 0. Consumed by sessions() timing (human_idle_sec / n_turns)." }
   }
 }
