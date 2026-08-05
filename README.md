@@ -110,7 +110,7 @@ undershoot.
 
 "Genuine human" excludes harness injections (Stop-hook feedback, task
 notifications, `isMeta`, …), flagged per message by `messages.injected` — without
-it, ~75% of Claude Code `user` messages would be miscounted as human turns.
+it, those injected `user` rows would be miscounted as human turns.
 `tool_exec_sec` / `n_tool_calls` are `NaN`, never `0`, for a source that cannot
 reliably observe tools (e.g. Cursor) when a session shows none — an honest
 "unmeasurable," not a false zero.
