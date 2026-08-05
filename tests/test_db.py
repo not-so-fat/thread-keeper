@@ -124,3 +124,19 @@ def test_collection_state_hash_based_change_detection(conn):
     db.set_collection_state(conn, "/tmp/state.vscdb", "cursor", last_hash="abc")
     assert db.has_changed(conn, "/tmp/state.vscdb", content_hash="abc") is False
     assert db.has_changed(conn, "/tmp/state.vscdb", content_hash="def") is True
+
+
+def test_replace_session_persists_injected_flag(conn):
+    pid = db.upsert_project(conn, "/repo/one")
+    session = {"id": "s-inj", "project_id": pid, "source": "claude-code",
+               "file_path": "/tmp/s-inj.jsonl", "started_at": "2026-07-01T10:00:00Z"}
+    events = [
+        {"kind": "user", "text": "real human", "ts": "2026-07-01T10:00:00Z"},
+        {"kind": "user", "text": "<task-notification>", "ts": "2026-07-01T10:00:01Z", "injected": True},
+    ]
+    db.replace_session(conn, session, events)
+    rows = conn.execute(
+        "SELECT text, injected FROM messages WHERE session_id='s-inj' ORDER BY seq"
+    ).fetchall()
+    assert rows[0]["injected"] == 0
+    assert rows[1]["injected"] == 1
