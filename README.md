@@ -91,8 +91,12 @@ folder's README for setup with Jupyter.
 
 `tk.sessions()` splits each session's wall-clock into mutually-exclusive buckets
 so you define "performance" yourself — throughput, latency, tool overhead —
-instead of the library imposing one. Where a session has tool events,
-`human_idle_sec + model_sec + tool_exec_sec == session_span_sec`.
+instead of the library imposing one. Where a session has tool events and
+message timestamps are monotonic in `seq` order,
+`human_idle_sec + model_sec + tool_exec_sec` equals the message-timestamp span
+(which is `session_span_sec` when `started_at`/`ended_at` match first/last
+message times). Out-of-order clocks clip negative gaps to zero, so the sum can
+undershoot.
 
 | column | definition |
 |---|---|
