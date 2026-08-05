@@ -131,8 +131,12 @@ def _attach_timing(df: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
     ``session_span_sec`` / ``active_sec`` to a sessions frame.
 
     ``active_sec = session_span_sec - human_idle_sec``. Sessions with no
-    messages get 0.0 timing buckets / counts (not NaN) since a session with
-    nothing to time is genuinely idle-free, not unmeasurable.
+    messages get 0.0 for ``model_sec``/``human_idle_sec``/``n_turns`` (not
+    NaN) since a session with nothing to time is genuinely idle-free, not
+    unmeasurable. ``tool_exec_sec``/``n_tool_calls`` are zero-filled only for
+    those no-message sessions; when ``_session_timing`` reports a session but
+    leaves its tool columns NaN (source can't reliably measure tools and the
+    session has no tool events), that NaN is intentional and is preserved.
     """
     span = (df["ended_at"] - df["started_at"]).dt.total_seconds() if not df.empty else pd.Series(dtype=float)
     df["session_span_sec"] = span
@@ -143,10 +147,14 @@ def _attach_timing(df: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
         return df
     msgs = messages(conn=conn)
     timing = _session_timing(msgs, df.set_index("id")["source"])
+    has_timing = df["id"].isin(timing.index)
     df = df.merge(timing, left_on="id", right_index=True, how="left")
-    # sessions with no messages -> 0 buckets / counts
-    df[["model_sec", "tool_exec_sec", "human_idle_sec"]] = df[["model_sec", "tool_exec_sec", "human_idle_sec"]].fillna(0.0)
-    df[["n_turns", "n_tool_calls"]] = df[["n_turns", "n_tool_calls"]].fillna(0)
+    # never-NaN-from-_session_timing columns: safe to zero-fill (covers no-message sessions)
+    df[["model_sec", "human_idle_sec"]] = df[["model_sec", "human_idle_sec"]].fillna(0.0)
+    df["n_turns"] = df["n_turns"].fillna(0)
+    # tool columns: zero ONLY for sessions absent from timing (no messages); preserve intended NaN otherwise
+    absent = (~has_timing).to_numpy()
+    df.loc[absent, ["tool_exec_sec", "n_tool_calls"]] = df.loc[absent, ["tool_exec_sec", "n_tool_calls"]].fillna(0.0)
     df["active_sec"] = df["session_span_sec"] - df["human_idle_sec"]
     return df
 

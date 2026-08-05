@@ -138,6 +138,21 @@ def test_sessions_empty_store_has_timing_columns(conn):
         assert col in df.columns
 
 
+def test_sessions_preserves_tool_nan_for_cursor_without_tools(conn):
+    pid = db.upsert_project(conn, "/repo/one")
+    db.replace_session(conn, {"id": "cur", "project_id": pid, "source": "cursor",
+        "file_path": "/tmp/cur.db", "started_at": "2026-07-01T10:00:00Z",
+        "ended_at": "2026-07-01T10:00:10Z"},
+        [{"kind": "user", "text": "hi", "ts": "2026-07-01T10:00:00Z"},
+         {"kind": "assistant", "text": "yo", "ts": "2026-07-01T10:00:05Z"}])
+    row = query.sessions(conn)
+    row = row[row["id"] == "cur"].iloc[0]
+    assert math.isnan(row["tool_exec_sec"])
+    assert math.isnan(row["n_tool_calls"])
+    assert row["n_turns"] == 1
+    assert row["model_sec"] == 5.0
+
+
 def test_sessions_missing_usage_is_nan_not_zero(conn):
     _seed(conn, with_usage=False, session_id="s-empty", source="cursor")
     df = query.sessions(conn)
