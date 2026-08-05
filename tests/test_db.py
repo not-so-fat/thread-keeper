@@ -140,3 +140,22 @@ def test_replace_session_persists_injected_flag(conn):
     ).fetchall()
     assert rows[0]["injected"] == 0
     assert rows[1]["injected"] == 1
+
+
+def test_init_schema_adds_injected_to_legacy_messages_table(tmp_path):
+    import sqlite3
+    from threadkeeper import db
+    p = tmp_path / "legacy.db"
+    raw = sqlite3.connect(str(p))
+    # legacy messages table WITHOUT the injected column
+    raw.executescript(
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " session_id TEXT NOT NULL, seq INTEGER NOT NULL, uuid TEXT, ts TEXT,"
+        " kind TEXT NOT NULL, text TEXT, tool_name TEXT, tool_input TEXT,"
+        " tool_use_id TEXT, model TEXT);"
+    )
+    raw.commit(); raw.close()
+    conn = db.connect(p)  # runs init_schema -> must migrate
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
+    assert "injected" in cols
+    conn.close()

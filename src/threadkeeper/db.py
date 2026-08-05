@@ -88,7 +88,21 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotently bring a pre-existing ``messages`` table up to the current schema.
+
+    ``CREATE TABLE IF NOT EXISTS`` in ``SCHEMA`` is a no-op against a real,
+    already-existing ``messages`` table (e.g. the on-disk
+    ``~/.thread-keeper/thread-keeper.db`` that predates the ``injected``
+    column), so new columns must be added here via ``ALTER TABLE``.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
+    if "injected" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN injected INTEGER NOT NULL DEFAULT 0")
 
 
 def upsert_project(conn: sqlite3.Connection, physical_path: str) -> int:
