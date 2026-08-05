@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import numpy as np
 import pandas as pd
 
 from . import db as _db
@@ -182,6 +183,53 @@ def usage_long(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
                 )
     df = pd.DataFrame(rows, columns=_USAGE_LONG_COLUMNS)
     return _as_utc_timestamps(df, ("started_at",))
+
+
+_HUMAN = "user"
+_TOOL_RELIABLE_SOURCES = frozenset({"claude-code", "codex"})
+_TIMING_COLS = ["model_sec", "tool_exec_sec", "human_idle_sec", "n_turns", "n_tool_calls"]
+
+
+def _session_timing(messages: pd.DataFrame, sources: pd.Series) -> pd.DataFrame:
+    """Per-session timing buckets + counts, indexed by session_id.
+
+    Each inter-message gap (ordered by seq) is attributed to one bucket:
+    a gap before a genuine human message (kind=='user' and not injected) is
+    idle; a gap after a tool_use is tool execution; everything else is model
+    working time (latency, generation, incl. API errors). Buckets partition the
+    span where tool events exist. Tool columns are NaN for a source that does
+    not reliably log tools when the session shows none (avoids overclaiming 0).
+    """
+    if messages.empty:
+        return pd.DataFrame(columns=_TIMING_COLS)
+    m = messages.sort_values(["session_id", "seq"])
+    injected = m["injected"].fillna(0).astype(bool)
+    is_human = m["kind"].eq(_HUMAN) & ~injected
+    g = m.groupby("session_id", sort=False)
+    diff = g["ts"].diff().dt.total_seconds()
+    gap = diff.clip(lower=0)
+    prev_kind = g["kind"].shift(1)
+    # gap BEFORE a genuine-human row == human idle; after a tool_use == tool exec
+    bucket = np.where(is_human.to_numpy(), "human_idle_sec",
+             np.where(prev_kind.eq("tool_use").to_numpy(), "tool_exec_sec", "model_sec"))
+    bucket = np.where(diff.isna().to_numpy(), None, bucket)
+    tb = (pd.DataFrame({"session_id": m["session_id"].to_numpy(), "gap": gap.to_numpy(), "bucket": bucket})
+            .dropna(subset=["bucket"])
+            .pivot_table(index="session_id", columns="bucket", values="gap", aggfunc="sum", fill_value=0.0))
+    for c in ("model_sec", "tool_exec_sec", "human_idle_sec"):
+        if c not in tb.columns:
+            tb[c] = 0.0
+    sid = m["session_id"]
+    counts = pd.DataFrame({
+        "n_turns": is_human.groupby(sid, sort=False).sum(),
+        "n_tool_calls": m["kind"].eq("tool_use").groupby(sid, sort=False).sum().astype(float),
+        "_has_tools": m["kind"].isin(["tool_use", "tool_result"]).groupby(sid, sort=False).any(),
+    })
+    out = tb.join(counts)
+    src = sources.reindex(out.index)
+    unmeasurable = (~src.isin(_TOOL_RELIABLE_SOURCES)) & (~out["_has_tools"].fillna(False))
+    out.loc[unmeasurable.to_numpy(), ["tool_exec_sec", "n_tool_calls"]] = np.nan
+    return out[_TIMING_COLS]
 
 
 def messages(session_id: str | None = None, conn: sqlite3.Connection | None = None) -> pd.DataFrame:

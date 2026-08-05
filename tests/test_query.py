@@ -1,6 +1,7 @@
 import json
 import math
 
+import numpy as np
 import pandas as pd
 
 from threadkeeper import db, models, query
@@ -205,3 +206,59 @@ def test_messages_without_session_id_returns_all(conn):
     _seed(conn)
     df = query.messages(conn=conn)
     assert len(df) == 2
+
+
+def _msgs(rows):
+    """rows: list of (session_id, seq, ts, kind, injected)."""
+    df = pd.DataFrame(rows, columns=["session_id", "seq", "ts", "kind", "injected"])
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    return df
+
+
+def test_session_timing_buckets_and_counts():
+    # human(0s) -> assistant(+4s) -> tool_use(+0) -> tool_result(+2s) -> assistant(+3s) -> human(+30s)
+    m = _msgs([
+        ("s", 0, "2026-07-01T10:00:00Z", "user", 0),
+        ("s", 1, "2026-07-01T10:00:04Z", "assistant", 0),
+        ("s", 2, "2026-07-01T10:00:04Z", "tool_use", 0),
+        ("s", 3, "2026-07-01T10:00:06Z", "tool_result", 0),
+        ("s", 4, "2026-07-01T10:00:09Z", "assistant", 0),
+        ("s", 5, "2026-07-01T10:00:39Z", "user", 0),
+    ])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"})).loc["s"]
+    assert t["tool_exec_sec"] == 2.0            # tool_use -> tool_result
+    assert t["human_idle_sec"] == 30.0          # gap before the 2nd human
+    assert t["model_sec"] == 4.0 + 0.0 + 3.0    # user->assistant, assistant->tool_use, tool_result->assistant
+    assert t["n_turns"] == 2
+    assert t["n_tool_calls"] == 1
+
+def test_session_timing_ignores_injected_user():
+    # injected user right after assistant must NOT open idle nor count as a turn
+    m = _msgs([
+        ("s", 0, "2026-07-01T10:00:00Z", "user", 0),
+        ("s", 1, "2026-07-01T10:00:05Z", "assistant", 0),
+        ("s", 2, "2026-07-01T10:00:05Z", "user", 1),   # injected (<0.5s)
+        ("s", 3, "2026-07-01T10:00:08Z", "assistant", 0),
+    ])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"})).loc["s"]
+    assert t["n_turns"] == 1
+    assert t["human_idle_sec"] == 0.0
+    assert t["model_sec"] == 8.0
+
+def test_session_timing_tool_nan_for_cursor_without_tools():
+    m = _msgs([
+        ("c", 0, "2026-07-01T10:00:00Z", "user", 0),
+        ("c", 1, "2026-07-01T10:00:05Z", "assistant", 0),
+    ])
+    t = query._session_timing(m, pd.Series({"c": "cursor"})).loc["c"]
+    assert np.isnan(t["tool_exec_sec"])
+    assert np.isnan(t["n_tool_calls"])
+
+def test_session_timing_tool_zero_for_claude_without_tools():
+    m = _msgs([
+        ("s", 0, "2026-07-01T10:00:00Z", "user", 0),
+        ("s", 1, "2026-07-01T10:00:05Z", "assistant", 0),
+    ])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"})).loc["s"]
+    assert t["tool_exec_sec"] == 0.0
+    assert t["n_tool_calls"] == 0
