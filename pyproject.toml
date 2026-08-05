@@ -1,6 +1,6 @@
 [project]
 name = "thk"
-version = "0.0.3"
+version = "0.0.4"
 description = "Local-first CLI that collects Claude Code / Codex / Cursor agent session logs into SQLite and exposes pandas query helpers + starter notebooks."
 readme = "README.md"
 authors = [
