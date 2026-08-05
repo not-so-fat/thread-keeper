@@ -1,7 +1,13 @@
 import json
 import math
 
+import pandas as pd
+
 from threadkeeper import db, models, query
+
+
+def _assert_utc_datetime64(series: pd.Series) -> None:
+    assert str(series.dtype) == "datetime64[us, UTC]", series.dtype
 
 
 def _seed(conn, *, with_usage=True, session_id="s1", source="claude-code"):
@@ -24,15 +30,20 @@ def _seed(conn, *, with_usage=True, session_id="s1", source="claude-code"):
         "source": source,
         "file_path": f"/tmp/{session_id}.jsonl",
         "started_at": "2026-07-01T10:00:00Z",
-        "ended_at": "2026-07-01T10:05:00Z",
+        "ended_at": "2026-07-01T10:05:00.123Z",
         "first_prompt": "hello",
         "context_tokens": 100 if with_usage else None,
         "summary": "a summary",
         "usage": usage,
     }
     events = [
-        {"kind": "user", "text": "hi"},
-        {"kind": "tool_use", "tool_name": "read_file", "tool_input": json.dumps({"path": "a.py"})},
+        {"kind": "user", "text": "hi", "ts": "2026-07-01T10:00:00Z"},
+        {
+            "kind": "tool_use",
+            "tool_name": "read_file",
+            "tool_input": json.dumps({"path": "a.py"}),
+            "ts": "2026-07-01T10:00:01.5Z",
+        },
     ]
     db.replace_session(conn, session, events)
     return pid
@@ -44,6 +55,13 @@ def test_projects_returns_dataframe(conn):
     assert list(df["path"]) == ["/repo/one"]
 
 
+def test_projects_created_at_is_utc_timestamp(conn):
+    _seed(conn)
+    df = query.projects(conn)
+    _assert_utc_datetime64(df["created_at"])
+    assert pd.notna(df.iloc[0]["created_at"])
+
+
 def test_sessions_decodes_usage_json_column(conn):
     _seed(conn)
     df = query.sessions(conn)
@@ -51,6 +69,38 @@ def test_sessions_decodes_usage_json_column(conn):
     usage = df.iloc[0]["usage"]
     assert isinstance(usage, dict)
     assert usage["claude-opus-4-8"]["input"] == 10
+
+
+def test_sessions_timestamp_columns_are_utc(conn):
+    _seed(conn)
+    df = query.sessions(conn)
+    _assert_utc_datetime64(df["started_at"])
+    _assert_utc_datetime64(df["ended_at"])
+    row = df.iloc[0]
+    assert row["started_at"] == pd.Timestamp("2026-07-01T10:00:00Z")
+    assert row["ended_at"] == pd.Timestamp("2026-07-01T10:05:00.123Z")
+
+
+def test_sessions_null_timestamps_become_nat(conn):
+    pid = db.upsert_project(conn, "/repo/one")
+    db.replace_session(
+        conn,
+        {
+            "id": "s-null-ts",
+            "project_id": pid,
+            "source": "cursor",
+            "file_path": "/tmp/s-null-ts.jsonl",
+            "started_at": None,
+            "ended_at": None,
+        },
+        [{"kind": "user", "text": "hi"}],
+    )
+    df = query.sessions(conn)
+    row = df.iloc[0]
+    _assert_utc_datetime64(df["started_at"])
+    _assert_utc_datetime64(df["ended_at"])
+    assert pd.isna(row["started_at"])
+    assert pd.isna(row["ended_at"])
 
 
 def test_sessions_enriches_cost_and_token_columns(conn):
@@ -95,6 +145,8 @@ def test_usage_long_one_row_per_session_model(conn):
     assert row["cost_usd"] == models.cost_of_model(
         "claude-opus-4-8", {"input": 10, "output": 5, "cacheWrite5m": 2, "cacheRead": 3}
     )
+    _assert_utc_datetime64(long["started_at"])
+    assert row["started_at"] == pd.Timestamp("2026-07-01T10:00:00Z")
 
 
 def test_sessions_unpriced_model_has_usage_but_nan_cost(conn):
@@ -128,6 +180,8 @@ def test_sessions_empty_store_has_enrichment_columns(conn):
         "models",
     ):
         assert col in df.columns
+    _assert_utc_datetime64(df["started_at"])
+    _assert_utc_datetime64(df["ended_at"])
 
 
 def test_messages_decodes_tool_input_json_column_and_filters_by_session(conn):
@@ -137,6 +191,14 @@ def test_messages_decodes_tool_input_json_column_and_filters_by_session(conn):
     tool_row = df[df["kind"] == "tool_use"].iloc[0]
     assert isinstance(tool_row["tool_input"], dict)
     assert tool_row["tool_input"]["path"] == "a.py"
+
+
+def test_messages_ts_is_utc_timestamp(conn):
+    _seed(conn)
+    df = query.messages(conn=conn)
+    _assert_utc_datetime64(df["ts"])
+    assert df.iloc[0]["ts"] == pd.Timestamp("2026-07-01T10:00:00Z")
+    assert df.iloc[1]["ts"] == pd.Timestamp("2026-07-01T10:00:01.5Z")
 
 
 def test_messages_without_session_id_returns_all(conn):
