@@ -262,3 +262,23 @@ def test_session_timing_tool_zero_for_claude_without_tools():
     t = query._session_timing(m, pd.Series({"s": "claude-code"})).loc["s"]
     assert t["tool_exec_sec"] == 0.0
     assert t["n_tool_calls"] == 0
+
+
+def test_session_timing_keeps_single_message_session():
+    m = _msgs([("s", 0, "2026-07-01T10:00:00Z", "user", 0)])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"}))
+    assert "s" in t.index
+    row = t.loc["s"]
+    assert row["model_sec"] == 0.0
+    assert row["tool_exec_sec"] == 0.0
+    assert row["human_idle_sec"] == 0.0
+    assert row["n_turns"] == 1
+    assert row["n_tool_calls"] == 0
+
+
+def test_session_timing_keeps_all_nat_session():
+    m = _msgs([("s", 0, None, "user", 0), ("s", 1, None, "assistant", 0)])
+    t = query._session_timing(m, pd.Series({"s": "claude-code"}))
+    assert "s" in t.index
+    assert t.loc["s"]["n_turns"] == 1
+    assert t.loc["s"]["model_sec"] == 0.0

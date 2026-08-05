@@ -225,7 +225,12 @@ def _session_timing(messages: pd.DataFrame, sources: pd.Series) -> pd.DataFrame:
         "n_tool_calls": m["kind"].eq("tool_use").groupby(sid, sort=False).sum().astype(float),
         "_has_tools": m["kind"].isin(["tool_use", "tool_result"]).groupby(sid, sort=False).any(),
     })
-    out = tb.join(counts)
+    # counts covers every session (unconditional groupby); tb only covers
+    # sessions with at least one attributable gap. Join onto counts so a
+    # single-message or all-NaT session is never dropped.
+    out = counts.join(tb)
+    for c in ("model_sec", "tool_exec_sec", "human_idle_sec"):
+        out[c] = out[c].fillna(0.0)
     src = sources.reindex(out.index)
     unmeasurable = (~src.isin(_TOOL_RELIABLE_SOURCES)) & (~out["_has_tools"].fillna(False))
     out.loc[unmeasurable.to_numpy(), ["tool_exec_sec", "n_tool_calls"]] = np.nan
