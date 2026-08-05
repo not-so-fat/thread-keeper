@@ -170,9 +170,10 @@ def parse_claude_session(file: str | Path) -> tuple[dict, list[dict]]:
             if not o.get("isSidechain") and o.get("type") == "assistant" and msg.get("usage"):
                 # Claude Code writes the same assistant API response to the log more
                 # than once (streaming partials / session replay); the copies share
-                # one message.id. Count each response's usage ONCE — summing every
-                # copy inflates tokens and cost ~2-3x. Matches Chronicle's per-apiCall
-                # aggregation (distinct message.id == apiCalls).
+                # one message.id and carry identical usage. Count each response's usage
+                # ONCE — summing every copy inflates tokens and cost ~2-3x. Verified
+                # against raw transcripts (distinct message.id == the real API calls);
+                # first copy wins, which is safe since the copies are identical.
                 msg_id = msg.get("id")
                 if msg_id is None or msg_id not in seen_message_ids:
                     if msg_id is not None:
