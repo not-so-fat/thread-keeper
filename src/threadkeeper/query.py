@@ -126,6 +126,16 @@ def _enrich_sessions(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _messages_for_timing(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Minimal message columns for timing — avoids SELECT * and the tool_input
+    JSON decode that messages() does (sessions() calls this on every invocation)."""
+    df = pd.read_sql_query(
+        "SELECT session_id, seq, ts, kind, injected FROM messages ORDER BY session_id, seq",
+        conn,
+    )
+    return _as_utc_timestamps(df, ("ts",))
+
+
 def _attach_timing(df: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
     """Attach per-session timing columns (Task 3's ``_session_timing``) plus
     ``session_span_sec`` / ``active_sec`` to a sessions frame.
@@ -145,16 +155,20 @@ def _attach_timing(df: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
             df[c] = pd.Series(dtype=float)
         df["active_sec"] = pd.Series(dtype=float)
         return df
-    msgs = messages(conn=conn)
+    msgs = _messages_for_timing(conn)
     timing = _session_timing(msgs, df.set_index("id")["source"])
     has_timing = df["id"].isin(timing.index)
     df = df.merge(timing, left_on="id", right_index=True, how="left")
     # never-NaN-from-_session_timing columns: safe to zero-fill (covers no-message sessions)
     df[["model_sec", "human_idle_sec"]] = df[["model_sec", "human_idle_sec"]].fillna(0.0)
     df["n_turns"] = df["n_turns"].fillna(0)
-    # tool columns: zero ONLY for sessions absent from timing (no messages); preserve intended NaN otherwise
-    absent = (~has_timing).to_numpy()
-    df.loc[absent, ["tool_exec_sec", "n_tool_calls"]] = df.loc[absent, ["tool_exec_sec", "n_tool_calls"]].fillna(0.0)
+    # tool columns: zero ONLY for sessions absent from timing (no messages) AND
+    # whose source reliably logs tools; message-less sessions from other sources
+    # keep NaN (can't claim 0 tool calls when tools can't be reliably observed)
+    absent_reliable = ((~has_timing) & df["source"].isin(_TOOL_RELIABLE_SOURCES)).to_numpy()
+    df.loc[absent_reliable, ["tool_exec_sec", "n_tool_calls"]] = df.loc[
+        absent_reliable, ["tool_exec_sec", "n_tool_calls"]
+    ].fillna(0.0)
     df["active_sec"] = df["session_span_sec"] - df["human_idle_sec"]
     return df
 
@@ -255,7 +269,7 @@ def _session_timing(messages: pd.DataFrame, sources: pd.Series) -> pd.DataFrame:
             tb[c] = 0.0
     sid = m["session_id"]
     counts = pd.DataFrame({
-        "n_turns": is_human.groupby(sid, sort=False).sum(),
+        "n_turns": is_human.groupby(sid, sort=False).sum().astype(float),
         "n_tool_calls": m["kind"].eq("tool_use").groupby(sid, sort=False).sum().astype(float),
         "_has_tools": m["kind"].isin(["tool_use", "tool_result"]).groupby(sid, sort=False).any(),
     })

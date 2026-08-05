@@ -130,6 +130,11 @@ def test_sessions_has_timing_columns(conn):
     assert abs(row["active_sec"] - 300.123) < 1e-6        # span - idle
 
 
+def test_sessions_n_turns_is_float_dtype(conn):
+    _seed(conn)
+    assert str(query.sessions(conn)["n_turns"].dtype) == "float64"
+
+
 def test_sessions_empty_store_has_timing_columns(conn):
     df = query.sessions(conn)
     assert df.empty
