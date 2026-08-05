@@ -9,6 +9,10 @@ or inconsistent.
 No web UI, no daemon, no cloud, no network calls. Just: **collect → normalize
 → analyze.**
 
+The product name is **thread-keeper**. The PyPI / install distribution name is
+[`thk`](https://pypi.org/project/thk/) (`uv tool install thk`, `uvx thk`,
+`pip install thk`).
+
 See [`docs/PRD.md`](docs/PRD.md) for the full product spec and
 [`docs/contracts/`](docs/contracts/) for the JSON Schemas of every shape that
 crosses a boundary.
@@ -16,12 +20,17 @@ crosses a boundary.
 ## Install
 
 ```bash
+# From PyPI:
+uv tool install thk
+# or: pip install thk
+
+# From a clone (editable):
 git clone <this-repo>
 cd thread-keeper
 uv sync
-# Put `thread-keeper` on PATH for agent hooks (required before install-hooks
-# if you want a bare `thread-keeper` name; install-hooks also writes an
-# absolute path so SessionEnd works after `uv sync` alone).
+# Put `thread-keeper` (and `thk`) on PATH for agent hooks (required before
+# install-hooks if you want a bare `thread-keeper` name; install-hooks also
+# writes an absolute path so SessionEnd works after `uv sync` alone).
 uv tool install -e .
 ```
 

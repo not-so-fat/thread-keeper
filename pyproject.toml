@@ -1,6 +1,6 @@
 [project]
-name = "thread-keeper"
-version = "0.1.0"
+name = "thk"
+version = "0.0.3"
 description = "Local-first CLI that collects Claude Code / Codex / Cursor agent session logs into SQLite and exposes pandas query helpers + starter notebooks."
 readme = "README.md"
 authors = [
@@ -19,7 +19,9 @@ jupyter = [
 ]
 
 [project.scripts]
+# Product CLI is thread-keeper; thk is the short install/PyPI handle.
 thread-keeper = "threadkeeper.cli:app"
+thk = "threadkeeper.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]

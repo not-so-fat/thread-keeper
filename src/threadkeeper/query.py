@@ -4,6 +4,10 @@
 JSON columns (``sessions.usage``, ``messages.tool_input``) are auto-decoded
 into dict-valued columns so notebooks never write SQL/JSON glue.
 
+ISO timestamp columns stored as SQLite TEXT are coerced to timezone-aware
+UTC (``datetime64[us, UTC]``): ``sessions.started_at`` / ``ended_at``,
+``messages.ts``, ``projects.created_at``, ``usage_long.started_at``.
+
 Analysis columns use a canonical snake_case vocabulary
 (``input_tokens``, ``output_tokens``, ``cache_write_tokens``,
 ``cache_read_tokens``, ``cost_usd``, ``has_usage``) — never source-native
@@ -51,6 +55,24 @@ def _decode_json_column(series: pd.Series) -> pd.Series:
             return None
 
     return series.map(decode)
+
+
+def _as_utc_timestamps(df: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
+    """Coerce ISO / SQLite-text timestamp columns to ``datetime64[us, UTC]``.
+
+    Uses ``format='ISO8601'`` so ``Z``, ``+00:00``, fractional seconds, and
+    SQLite ``datetime('now')`` naive strings all parse; naive values are
+    treated as UTC.
+    """
+    for col in columns:
+        if col not in df.columns:
+            continue
+        # Pin microsecond resolution so empty / all-null frames don't
+        # collapse to datetime64[s, UTC] while populated ones use [us].
+        df[col] = pd.to_datetime(df[col], utc=True, format="ISO8601").astype(
+            "datetime64[us, UTC]"
+        )
+    return df
 
 
 def _enrich_sessions(df: pd.DataFrame) -> pd.DataFrame:
@@ -104,9 +126,10 @@ def _enrich_sessions(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def projects(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
-    """All projects as a DataFrame."""
+    """All projects as a DataFrame; ``created_at`` as UTC timestamps."""
     c = _connect(conn)
-    return pd.read_sql_query("SELECT * FROM projects ORDER BY id", c)
+    df = pd.read_sql_query("SELECT * FROM projects ORDER BY id", c)
+    return _as_utc_timestamps(df, ("created_at",))
 
 
 def sessions(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
@@ -114,10 +137,12 @@ def sessions(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
 
     Adds ``has_usage``, ``cost_usd``, ``input_tokens``, ``output_tokens``,
     ``cache_write_tokens``, ``cache_read_tokens``, ``models``. Missing usage
-    yields ``has_usage=False`` and NaN numerics.
+    yields ``has_usage=False`` and NaN numerics. ``started_at`` / ``ended_at``
+    are timezone-aware UTC timestamps.
     """
     c = _connect(conn)
     df = pd.read_sql_query("SELECT * FROM sessions ORDER BY started_at", c)
+    df = _as_utc_timestamps(df, ("started_at", "ended_at"))
     if "usage" in df.columns:
         df["usage"] = _decode_json_column(df["usage"])
     else:
@@ -129,7 +154,7 @@ def usage_long(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     """One row per ``(session_id, model)`` for sessions with usage.
 
     Columns use the canonical analysis vocabulary only. Sessions without
-    usage contribute no rows.
+    usage contribute no rows. ``started_at`` is timezone-aware UTC.
     """
     s = sessions(conn)
     rows: list[dict] = []
@@ -155,12 +180,13 @@ def usage_long(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
                         "cost_usd": c if c is not None else _NAN,
                     }
                 )
-    return pd.DataFrame(rows, columns=_USAGE_LONG_COLUMNS)
+    df = pd.DataFrame(rows, columns=_USAGE_LONG_COLUMNS)
+    return _as_utc_timestamps(df, ("started_at",))
 
 
 def messages(session_id: str | None = None, conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     """Messages as a DataFrame, optionally filtered to one session; ``tool_input``
-    is decoded from JSON to a dict column.
+    is decoded from JSON to a dict column; ``ts`` is timezone-aware UTC.
     """
     c = _connect(conn)
     if session_id is not None:
@@ -171,4 +197,4 @@ def messages(session_id: str | None = None, conn: sqlite3.Connection | None = No
         df = pd.read_sql_query("SELECT * FROM messages ORDER BY session_id, seq", c)
     if "tool_input" in df.columns:
         df["tool_input"] = _decode_json_column(df["tool_input"])
-    return df
+    return _as_utc_timestamps(df, ("ts",))
