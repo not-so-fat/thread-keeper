@@ -92,3 +92,22 @@ def test_parse_command_envelope_produces_no_event():
     # <command-name>/<local-command> strings are dropped outright (no event at all)
     assert claude_code.parse_claude_line(_user_line("<command-name>/foo</command-name>")) == []
     assert claude_code.parse_claude_line(_user_line("<local-command-stdout>x</local-command-stdout>")) == []
+
+
+def test_parse_dedupes_usage_by_message_id(tmp_path):
+    # Claude Code logs the same API response multiple times (shared message.id);
+    # usage must be counted once per id, not summed per duplicate copy.
+    def asst(mid, out):
+        return {"type": "assistant", "timestamp": "2026-07-01T10:00:00Z",
+                "message": {"id": mid, "model": "claude-opus-4-8",
+                            "usage": {"input_tokens": 10, "output_tokens": out,
+                                      "cache_read_input_tokens": 5},
+                            "content": [{"type": "text", "text": "hi"}]}}
+    f = tmp_path / "dup.jsonl"
+    lines = [asst("m1", 100), asst("m1", 100), asst("m1", 100), asst("m2", 50)]
+    f.write_text("\n".join(json.dumps(o) for o in lines))
+    session, _ = claude_code.parse_claude_session(f)
+    agg = json.loads(session["usage"])["claude-opus-4-8"]
+    assert agg["output"] == 150     # m1 counted once (100) + m2 (50), not 350
+    assert agg["input"] == 20       # 10 (m1 once) + 10 (m2)
+    assert agg["cacheRead"] == 10   # 5 + 5
