@@ -16,6 +16,9 @@ DEFAULT_CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 # Stop-hook feedback and caveats; these envelope prefixes catch the rest that
 # arrive with isMeta=False (e.g. background task notifications). Verified against
 # a 60-session scan (see specs/2026-08-05-agent-timing-columns-design.md).
+# `<command-name>` / `<local-command` / `<system-reminder>` are already dropped
+# outright in the string-content branch of parse_claude_line; they remain here so
+# the same check also flags them on the list-block path (defense-in-depth).
 CLAUDE_CODE_INJECTED_PREFIXES = (
     "<task-notification>",
     "<command-name>",

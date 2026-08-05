@@ -13,6 +13,7 @@
     "tool_name": { "type": ["string", "null"] },
     "tool_input": { "type": ["string", "null"], "description": "JSON-encoded string" },
     "tool_use_id": { "type": ["string", "null"] },
-    "model": { "type": ["string", "null"] }
+    "model": { "type": ["string", "null"] },
+    "injected": { "type": "boolean", "description": "kind=='user' only: true if the message is a harness injection (isMeta, or a known injection envelope such as a Stop-hook/task-notification), not a human turn. Absent/false for a genuine human message and for non-user kinds. Coerced to 0/1 in the DB (see message.json)." }
   }
 }

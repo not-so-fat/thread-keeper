@@ -213,7 +213,8 @@ JSON Schema (Draft 2020-12) for every shape that crosses a boundary. This is the
     "tool_name":{"type":["string","null"]},
     "tool_input":{"type":["string","null"],"description":"JSON STRING of tool args"},
     "tool_use_id":{"type":["string","null"],"description":"pairs tool_use<->tool_result"},
-    "model":{"type":["string","null"]}}}
+    "model":{"type":["string","null"]},
+    "injected":{"type":"integer","enum":[0,1],"default":0,"description":"1 = harness-injected user message (isMeta or a known injection envelope), not a human turn; else 0. Powers sessions() timing (human_idle_sec/n_turns). Backfill an existing store with `collect --sweep --force`."}}}
 ```
 
 **`collection_state`** (thread-keeper-new; a **change-detector**, not a read cursor)

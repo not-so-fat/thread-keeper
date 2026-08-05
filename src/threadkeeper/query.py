@@ -187,6 +187,16 @@ def sessions(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     ``cache_write_tokens``, ``cache_read_tokens``, ``models``. Missing usage
     yields ``has_usage=False`` and NaN numerics. ``started_at`` / ``ended_at``
     are timezone-aware UTC timestamps.
+
+    Also attaches per-session **timing** columns (seconds), decomposing the
+    span into mutually-exclusive buckets so callers define their own
+    performance metrics: ``human_idle_sec`` (gaps before genuine human
+    messages), ``model_sec`` (model latency + generation, incl. API
+    errors/retries), ``tool_exec_sec`` (tool run time), ``active_sec``
+    (= ``session_span_sec - human_idle_sec``), ``session_span_sec``, plus counts
+    ``n_turns`` (genuine human turns) and ``n_tool_calls``. ``tool_exec_sec`` /
+    ``n_tool_calls`` are NaN for a source that cannot reliably observe tools
+    (e.g. Cursor) when a session shows none — never a misleading 0.
     """
     c = _connect(conn)
     df = pd.read_sql_query("SELECT * FROM sessions ORDER BY started_at", c)
