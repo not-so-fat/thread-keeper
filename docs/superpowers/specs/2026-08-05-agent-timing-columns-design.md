@@ -75,10 +75,13 @@ existing parser already returns *nothing* for some injected forms
 The new flag captures the forms the parser currently lets through as `kind=='user'`.
 
 **Migration.** `isMeta` is not stored today. The parser must persist `injected`,
-then a full `thk collect --sweep` re-ingest sets it correctly for all 843
-sessions. Existing rows cannot be back-filled from stored text alone (the
-`isMeta=True`-without-envelope cases are unrecoverable post-hoc), so re-collection
-is required, not optional.
+then a **forced** re-ingest sets it correctly for existing sessions. A plain
+`thk collect --sweep` does **not** suffice — it skips unchanged files via the
+change-detection watermark, so legacy rows keep `injected=0`. Use
+`thk collect --sweep --force` (bypasses the watermark; re-parses every file).
+Existing rows cannot be back-filled from stored text alone (the
+`isMeta=True`-without-envelope cases are unrecoverable post-hoc), so a forced
+re-collection is required, not optional.
 
 ## Query: timing decomposition (`query.py`, always on in `sessions()`)
 

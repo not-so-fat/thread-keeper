@@ -213,3 +213,19 @@ def test_status_reports_counts_and_watermarks(conn, fixtures_dir):
     assert info["sessions_by_source"]["claude-code"] == 1
     assert info["sessions_by_source"]["codex"] == 1
     assert len(info["watermarks"]) == 2
+
+
+def test_sweep_force_reingests_unchanged_files(conn, fixtures_dir):
+    # force=True bypasses the change-detection watermark and re-parses every file
+    # (used to backfill a parser/schema change into an existing store).
+    sources = ("claude-code", "codex")
+    kw = dict(claude_root=str(fixtures_dir / "claude_code"), codex_root=str(fixtures_dir / "codex"))
+    collect.collect_sweep(conn, sources=sources, **kw)
+
+    plain = collect.collect_sweep(conn, sources=sources, **kw)
+    assert sum(r.ingested for r in plain.values()) == 0
+    assert sum(r.skipped_unchanged for r in plain.values()) > 0
+
+    forced = collect.collect_sweep(conn, sources=sources, force=True, **kw)
+    assert sum(r.ingested for r in forced.values()) > 0
+    assert sum(r.skipped_unchanged for r in forced.values()) == 0

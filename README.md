@@ -96,7 +96,7 @@ below use `thread-keeper`; substitute `thk` after a PyPI tool install.
 thread-keeper collect --source <claude-code|codex|cursor> --session-id <id> [--transcript <path>]
 thread-keeper collect --source <claude-code|cursor> --from-stdin          # Claude Code / Cursor SessionEnd (JSON on stdin)
 thread-keeper collect --source codex --from-notify-argv                   # Codex notify (idle-heuristic)
-thread-keeper collect --sweep [--source <...>] [--claude-root <dir>] [--codex-root <dir>] [--cursor-root <dir>] [--host <label>]
+thread-keeper collect --sweep [--force] [--source <...>] [--claude-root <dir>] [--codex-root <dir>] [--cursor-root <dir>] [--host <label>]
 thread-keeper install-hooks [--tool <claude-code|cursor|codex> ...]
 thread-keeper uninstall-hooks [--tool <claude-code|cursor|codex> ...]
 thread-keeper status
@@ -109,6 +109,10 @@ thread-keeper status
 - `--sweep` is the **backstop + cold-start backfill**: walks all three
   sources' log dirs and ingests anything changed since the last run,
   including your entire pre-existing history on a fresh store.
+- `--force` (with `--sweep`) re-parses **every** file, ignoring the
+  change-detection watermark. Use it to backfill a parser/schema change into
+  an existing store — e.g. after an upgrade that adds a per-message field:
+  `thread-keeper collect --sweep --force`.
 - Source roots (`--claude-root`/`--codex-root`/`--cursor-root`, or the
   matching `THREAD_KEEPER_CLAUDE_ROOT`/`_CODEX_ROOT`/`_CURSOR_ROOT` env vars)
   plus `--host <label>` let you consolidate logs copied in from another
