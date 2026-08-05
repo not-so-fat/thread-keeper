@@ -118,6 +118,26 @@ def test_sessions_enriches_cost_and_token_columns(conn):
     assert row["cost_usd"] == expected
 
 
+def test_sessions_has_timing_columns(conn):
+    _seed(conn)  # events: user@10:00:00, tool_use@10:00:01.5 ; span 300.123s
+    row = query.sessions(conn).iloc[0]
+    assert row["n_turns"] == 1
+    assert row["n_tool_calls"] == 1                       # claude-code has the tool_use
+    assert row["model_sec"] == 1.5                        # user -> tool_use gap
+    assert row["tool_exec_sec"] == 0.0                    # no tool_result
+    assert row["human_idle_sec"] == 0.0
+    assert abs(row["session_span_sec"] - 300.123) < 1e-6
+    assert abs(row["active_sec"] - 300.123) < 1e-6        # span - idle
+
+
+def test_sessions_empty_store_has_timing_columns(conn):
+    df = query.sessions(conn)
+    assert df.empty
+    for col in ("model_sec", "tool_exec_sec", "human_idle_sec",
+                "active_sec", "session_span_sec", "n_turns", "n_tool_calls"):
+        assert col in df.columns
+
+
 def test_sessions_missing_usage_is_nan_not_zero(conn):
     _seed(conn, with_usage=False, session_id="s-empty", source="cursor")
     df = query.sessions(conn)

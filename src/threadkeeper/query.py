@@ -126,6 +126,31 @@ def _enrich_sessions(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _attach_timing(df: pd.DataFrame, conn: sqlite3.Connection) -> pd.DataFrame:
+    """Attach per-session timing columns (Task 3's ``_session_timing``) plus
+    ``session_span_sec`` / ``active_sec`` to a sessions frame.
+
+    ``active_sec = session_span_sec - human_idle_sec``. Sessions with no
+    messages get 0.0 timing buckets / counts (not NaN) since a session with
+    nothing to time is genuinely idle-free, not unmeasurable.
+    """
+    span = (df["ended_at"] - df["started_at"]).dt.total_seconds() if not df.empty else pd.Series(dtype=float)
+    df["session_span_sec"] = span
+    if df.empty:
+        for c in _TIMING_COLS:
+            df[c] = pd.Series(dtype=float)
+        df["active_sec"] = pd.Series(dtype=float)
+        return df
+    msgs = messages(conn=conn)
+    timing = _session_timing(msgs, df.set_index("id")["source"])
+    df = df.merge(timing, left_on="id", right_index=True, how="left")
+    # sessions with no messages -> 0 buckets / counts
+    df[["model_sec", "tool_exec_sec", "human_idle_sec"]] = df[["model_sec", "tool_exec_sec", "human_idle_sec"]].fillna(0.0)
+    df[["n_turns", "n_tool_calls"]] = df[["n_turns", "n_tool_calls"]].fillna(0)
+    df["active_sec"] = df["session_span_sec"] - df["human_idle_sec"]
+    return df
+
+
 def projects(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
     """All projects as a DataFrame; ``created_at`` as UTC timestamps."""
     c = _connect(conn)
@@ -148,7 +173,8 @@ def sessions(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
         df["usage"] = _decode_json_column(df["usage"])
     else:
         df["usage"] = None
-    return _enrich_sessions(df)
+    df = _enrich_sessions(df)
+    return _attach_timing(df, c)
 
 
 def usage_long(conn: sqlite3.Connection | None = None) -> pd.DataFrame:
