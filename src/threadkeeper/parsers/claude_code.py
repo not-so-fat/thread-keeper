@@ -133,6 +133,11 @@ def parse_claude_session(file: str | Path) -> tuple[dict, list[dict]]:
     context_tokens: int | None = None
     usage_by_model: dict[str, dict] = {}
     seen_message_ids: set[str] = set()  # dedup usage across duplicate log entries
+    # Continuation after context-limit re-appends prior main-chain rows under a
+    # `slug` with the same uuid + timestamp. Keep the first uuid only so file-order
+    # seq / timing don't rewind into the replayed history. Do NOT drop every
+    # slug-bearing row — post-continue work has new uuids (often still with slug).
+    seen_uuids: set[str] = set()
 
     with open(file, encoding="utf-8") as fh:
         for line in fh:
@@ -157,6 +162,12 @@ def parse_claude_session(file: str | Path) -> tuple[dict, list[dict]]:
             # first as a fallback when no explicit custom title exists.
             if not summary and o.get("type") == "summary" and isinstance(o.get("summary"), str) and o["summary"].strip():
                 summary = o["summary"][:200]
+
+            uuid = o.get("uuid")
+            if isinstance(uuid, str) and uuid in seen_uuids:
+                continue
+            if isinstance(uuid, str):
+                seen_uuids.add(uuid)
 
             # Latest cwd wins: sessions resumed after a repo move carry the old path
             # in their early records; the newest cwd is where the project lives now.

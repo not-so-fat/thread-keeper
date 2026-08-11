@@ -135,10 +135,18 @@ def uninstall_hooks_cmd(
 
 
 @app.command()
-def status() -> None:
-    """Store path, row counts, and per-file watermarks."""
+def status(
+    claude_root: Annotated[str | None, typer.Option("--claude-root", envvar="THREAD_KEEPER_CLAUDE_ROOT")] = None,
+    codex_root: Annotated[str | None, typer.Option("--codex-root", envvar="THREAD_KEEPER_CODEX_ROOT")] = None,
+    cursor_root: Annotated[str | None, typer.Option("--cursor-root", envvar="THREAD_KEEPER_CURSOR_ROOT")] = None,
+) -> None:
+    """Store path, row counts, per-file watermarks, and per-source staleness.
+
+    Exits 1 if any source is stale (files on disk a sweep hasn't collected), so
+    it doubles as a health check — a frozen source screams instead of drifting.
+    """
     conn = _db.connect()
-    info = _collect.status(conn)
+    info = _collect.status(conn, claude_root=claude_root, codex_root=codex_root, cursor_root=cursor_root)
     typer.echo(f"store: {info['db_path']}")
     for table, count in info["counts"].items():
         typer.echo(f"  {table}: {count}")
@@ -146,6 +154,18 @@ def status() -> None:
     for src, count in info["sessions_by_source"].items():
         typer.echo(f"  {src}: {count}")
     typer.echo(f"watermarks: {len(info['watermarks'])} file(s) tracked")
+    typer.echo("freshness (newest on disk vs. collected):")
+    any_stale = False
+    for src, f in info["freshness"].items():
+        any_stale = any_stale or f["stale"]
+        flag = f"⚠ STALE ({f['pending']} pending)" if f["stale"] else "ok"
+        typer.echo(
+            f"  {src}: {f['disk_files']} file(s) | disk={f['newest_disk'] or '-'} "
+            f"| collected={f['newest_collected'] or '-'} | {flag}"
+        )
+    if any_stale:
+        typer.echo("run `thread-keeper collect --sweep` to catch up stale sources.", err=True)
+        raise typer.Exit(code=1)
 
 
 def main() -> None:

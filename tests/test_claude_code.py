@@ -111,3 +111,50 @@ def test_parse_dedupes_usage_by_message_id(tmp_path):
     assert agg["output"] == 150     # m1 counted once (100) + m2 (50), not 350
     assert agg["input"] == 20       # 10 (m1 once) + 10 (m2)
     assert agg["cacheRead"] == 10   # 5 + 5
+
+
+def test_parse_skips_continuation_uuid_replay(tmp_path):
+    # After a context-limit continue, Claude Code re-appends prior main-chain rows
+    # under a slug with the same uuid+timestamp, then real continued work (new uuids).
+    # First uuid wins — replaying must not emit a second copy or rewind timestamps.
+    banner = ("This session is being continued from a previous conversation "
+              "that ran out of context. The conversation is summarized below:")
+    lines = [
+        {"type": "user", "uuid": "u-morning", "timestamp": "2026-07-18T10:00:00Z",
+         "message": {"content": "start work"}},
+        {"type": "assistant", "uuid": "a-evening", "timestamp": "2026-07-18T20:00:00Z",
+         "message": {"id": "m1", "model": "claude-opus-4-8",
+                     "usage": {"input_tokens": 10, "output_tokens": 5},
+                     "content": [{"type": "text", "text": "done for now"}]}},
+        # replay of the morning/evening chain under slug (same uuids)
+        {"type": "user", "uuid": "u-morning", "timestamp": "2026-07-18T10:00:00Z",
+         "slug": "gentle-tickling-pillow", "message": {"content": "start work"}},
+        {"type": "assistant", "uuid": "a-evening", "timestamp": "2026-07-18T20:00:00Z",
+         "slug": "gentle-tickling-pillow",
+         "message": {"id": "m1", "model": "claude-opus-4-8",
+                     "usage": {"input_tokens": 10, "output_tokens": 5},
+                     "content": [{"type": "text", "text": "done for now"}]}},
+        # real continued work — new uuids, still may carry slug
+        {"type": "user", "uuid": "u-cont", "timestamp": "2026-07-18T20:05:00Z",
+         "slug": "gentle-tickling-pillow", "message": {"content": banner}},
+        {"type": "assistant", "uuid": "a-cont", "timestamp": "2026-07-18T20:06:00Z",
+         "slug": "gentle-tickling-pillow",
+         "message": {"id": "m2", "model": "claude-opus-4-8",
+                     "usage": {"input_tokens": 20, "output_tokens": 8},
+                     "content": [{"type": "text", "text": "picking up"}]}},
+    ]
+    f = tmp_path / "continued.jsonl"
+    f.write_text("\n".join(json.dumps(o) for o in lines))
+    session, events = claude_code.parse_claude_session(f)
+
+    assert [e["uuid"] for e in events] == ["u-morning", "a-evening", "u-cont", "a-cont"]
+    assert [e["text"] for e in events] == [
+        "start work", "done for now", banner, "picking up",
+    ]
+    # wall clock must span live work → continued work, not rewind into the replay
+    assert session["started_at"] == "2026-07-18T10:00:00Z"
+    assert session["ended_at"] == "2026-07-18T20:06:00Z"
+    # usage still deduped by message.id (replay of m1 must not double-count)
+    agg = json.loads(session["usage"])["claude-opus-4-8"]
+    assert agg["output"] == 13  # m1 (5) + m2 (8)
+    assert agg["input"] == 30   # 10 + 20

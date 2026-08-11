@@ -354,8 +354,86 @@ def collect_codex_notify(conn, *, codex_root: str | None = None, host: str | Non
     return _ingest_codex_file(conn, file, effective_host, host_explicit, force=True)
 
 
-def status(conn) -> dict:
-    """Store path, row counts, and per-file watermarks (for ``thread-keeper status``)."""
+def source_freshness(
+    conn,
+    *,
+    claude_root: str | None = None,
+    codex_root: str | None = None,
+    cursor_root: str | None = None,
+) -> dict[str, dict]:
+    """Per-source staleness: how many files a sweep would (re)ingest right now.
+
+    ``pending`` reuses the sweep's own change-detector (``db.has_changed``) —
+    size+mtime for the JSONL sources, content-hash for Cursor — so it means
+    exactly "a sweep would collect this", with no false alarms from Cursor's
+    SQLite files being touched (WAL checkpoints) without new chat content.
+    ``pending > 0`` is the signal that turns a silently-frozen source (a
+    clobbered notify hook, an unscheduled sweep) into something ``status`` shows.
+    """
+    newest_collected: dict[str, str] = {
+        row["source"]: row["at"]
+        for row in conn.execute(
+            "SELECT source, MAX(last_collected_at) AS at FROM collection_state GROUP BY source"
+        )
+        if row["at"]
+    }
+
+    def _entry(source: str, mtimes: list[str], pending: int) -> dict:
+        return {
+            "disk_files": len(mtimes),
+            "newest_disk": max(mtimes) if mtimes else None,
+            "newest_collected": newest_collected.get(source),
+            "pending": pending,
+            "stale": pending > 0,
+        }
+
+    out: dict[str, dict] = {}
+
+    # JSONL sources — exact size+mtime detector.
+    jsonl = {
+        "claude-code": _iter_claude_session_files(resolve_claude_root(claude_root)),
+        "codex": _walk_jsonl(resolve_codex_root(codex_root)),
+    }
+    for source, files in jsonl.items():
+        mtimes: list[str] = []
+        pending = 0
+        for path in files:
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            mtime_iso = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+            mtimes.append(mtime_iso)
+            if db.has_changed(conn, str(path), size=st.st_size, mtime=mtime_iso):
+                pending += 1
+        out[source] = _entry(source, mtimes, pending)
+
+    # Cursor — content-hash detector (read-only snapshot copy, same as the sweep).
+    cur_root = resolve_cursor_root(cursor_root)
+    cursor_dbs: list[tuple[Path, str]] = []
+    ws_root = cur_root / "workspaceStorage"
+    if ws_root.exists():
+        for d in sorted(p for p in ws_root.iterdir() if p.is_dir()):
+            vscdb = d / "state.vscdb"
+            if vscdb.exists():
+                cursor_dbs.append((vscdb, cursor.workspace_content_hash(d, cur_root)))
+    global_db = cur_root / "globalStorage" / "state.vscdb"
+    if global_db.exists():
+        cursor_dbs.append((global_db, cursor.global_content_hash(cur_root)))
+
+    mtimes = []
+    pending = 0
+    for vscdb, content_hash in cursor_dbs:
+        mtimes.append(_iso_mtime(vscdb))
+        if db.has_changed(conn, str(vscdb), content_hash=content_hash):
+            pending += 1
+    out["cursor"] = _entry("cursor", mtimes, pending)
+
+    return out
+
+
+def status(conn, **roots) -> dict:
+    """Store path, row counts, per-file watermarks, and per-source freshness."""
     counts = {
         table: conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"]
         for table in ("projects", "sessions", "messages", "collection_state")
@@ -376,4 +454,5 @@ def status(conn) -> dict:
         "counts": counts,
         "sessions_by_source": sessions_by_source,
         "watermarks": watermarks,
+        "freshness": source_freshness(conn, **roots),
     }
